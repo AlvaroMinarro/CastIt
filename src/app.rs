@@ -313,12 +313,28 @@ fn update(state: &mut CastIt, message: Message) -> Task<Message> {
                     if !state.filtered_entries.is_empty() {
                         state.selected_index =
                             (state.selected_index + 1).min(state.filtered_entries.len() - 1);
+                        let total = state.filtered_entries.len();
+                        if total > 1 {
+                            let ratio = state.selected_index as f32 / (total - 1) as f32;
+                            return iced::widget::operation::snap_to(
+                                Id::new("scroll-list"),
+                                iced::widget::scrollable::RelativeOffset { x: 0.0, y: ratio }
+                            );
+                        }
                     }
                 }
                 Mode::FileBrowser => {
                     if !state.filtered_files.is_empty() {
                         state.selected_index =
                             (state.selected_index + 1).min(state.filtered_files.len() - 1);
+                        let total = state.filtered_files.len();
+                        if total > 1 {
+                            let ratio = state.selected_index as f32 / (total - 1) as f32;
+                            return iced::widget::operation::snap_to(
+                                Id::new("scroll-list"),
+                                iced::widget::scrollable::RelativeOffset { x: 0.0, y: ratio }
+                            );
+                        }
                     }
                 }
                 Mode::Settings => {
@@ -332,9 +348,25 @@ fn update(state: &mut CastIt, message: Message) -> Task<Message> {
             match state.mode {
                 Mode::Launcher => {
                     state.selected_index = state.selected_index.saturating_sub(1);
+                    let total = state.filtered_entries.len();
+                    if total > 1 {
+                        let ratio = state.selected_index as f32 / (total - 1) as f32;
+                        return iced::widget::operation::snap_to(
+                            Id::new("scroll-list"),
+                            iced::widget::scrollable::RelativeOffset { x: 0.0, y: ratio }
+                        );
+                    }
                 }
                 Mode::FileBrowser => {
                     state.selected_index = state.selected_index.saturating_sub(1);
+                    let total = state.filtered_files.len();
+                    if total > 1 {
+                        let ratio = state.selected_index as f32 / (total - 1) as f32;
+                        return iced::widget::operation::snap_to(
+                            Id::new("scroll-list"),
+                            iced::widget::scrollable::RelativeOffset { x: 0.0, y: ratio }
+                        );
+                    }
                 }
                 Mode::Settings => {
                     state.selected_setting = state.selected_setting.saturating_sub(1);
@@ -422,6 +454,7 @@ fn update(state: &mut CastIt, message: Message) -> Task<Message> {
                             state.query = format!("{}/", display_path);
                             state.selected_index = 0;
                             update_filtered_files(state);
+                            return iced::widget::operation::move_cursor_to_end(Id::new("search-input"));
                         }
                     }
                 }
@@ -726,7 +759,7 @@ fn view(state: &CastIt) -> Element<'_, Message> {
                         results = results.push(result_row(entry, is_selected, i, palette, lang));
                     }
 
-                    scrollable(results).height(Length::Shrink).into()
+                    scrollable(results).height(Length::Shrink).id(Id::new("scroll-list")).into()
                 } else {
                     container(
                         text(translate("no_results", lang))
@@ -760,7 +793,7 @@ fn view(state: &CastIt) -> Element<'_, Message> {
                         results = results.push(file_row(entry, is_selected, i, palette, lang));
                     }
 
-                    scrollable(results).height(Length::Shrink).into()
+                    scrollable(results).height(Length::Shrink).id(Id::new("scroll-list")).into()
                 } else {
                     container(
                         text(translate("no_files", lang))
@@ -1088,7 +1121,7 @@ fn file_row(entry: &FileEntry, selected: bool, _index: usize, palette: iced::the
         let tag_text = if entry.is_dir {
             if lang == "ES" { "⏎ Abrir | → Navegar" } else { "⏎ Open | → Navigate" }
         } else {
-            if lang == "ES" { "⏎ Lanzar" } else { "⏎ Launch" }
+            if lang == "ES" { "⏎ Lanzar | Ctrl+Espacio Vista previa" } else { "⏎ Launch | Ctrl+Space Preview" }
         };
         let tag = container(text(tag_text).size(10).color(palette.primary))
             .padding(Padding::from([3, 8]))
@@ -1302,7 +1335,7 @@ fn preview_pane<'a>(entry: &FileEntry, palette: iced::theme::Palette, lang: &str
     layout = layout.push(Space::new().height(Length::Fixed(4.0)));
 
     // Return tip
-    let tip = text(if lang == "ES" { "Presiona Espacio para volver" } else { "Press Space to return" })
+    let tip = text(if lang == "ES" { "Presiona Ctrl + Espacio para volver" } else { "Press Ctrl + Space to return" })
         .size(10)
         .color(Color { a: 0.35, ..palette.text });
     layout = layout.push(tip);
@@ -1344,7 +1377,7 @@ fn subscription(state: &CastIt) -> iced::Subscription<Message> {
                         iced::keyboard::Key::Named(iced::keyboard::key::Named::ArrowDown) => Some(Message::ArrowDown),
                         iced::keyboard::Key::Named(iced::keyboard::key::Named::ArrowUp) => Some(Message::ArrowUp),
                         iced::keyboard::Key::Named(iced::keyboard::key::Named::ArrowRight) => Some(Message::ArrowRight),
-                        iced::keyboard::Key::Named(iced::keyboard::key::Named::Space) => Some(Message::TogglePreview),
+                        iced::keyboard::Key::Named(iced::keyboard::key::Named::Space) if modifiers.control() => Some(Message::TogglePreview),
                         iced::keyboard::Key::Named(iced::keyboard::key::Named::Delete) if modifiers.shift() => Some(Message::ClearQuery),
                         iced::keyboard::Key::Named(iced::keyboard::key::Named::Backspace) if modifiers.shift() => Some(Message::ClearQuery),
                         _ => None,
