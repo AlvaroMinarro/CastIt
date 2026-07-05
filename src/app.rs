@@ -1,0 +1,883 @@
+use iced::widget::{container, image, row, scrollable, svg, text, text_input, Column, Space, Id};
+use iced::{Element, Length, Padding, Task, Font, Color};
+use iced_layershell::application;
+use iced_layershell::reexport::{Anchor, KeyboardInteractivity, Layer};
+use iced_layershell::settings::{LayerShellSettings, Settings, StartMode};
+use iced_layershell::to_layer_message;
+use nucleo_matcher::pattern::{CaseMatching, Normalization, Pattern};
+use nucleo_matcher::{Config, Matcher, Utf32Str};
+use std::process::Command;
+
+use crate::config;
+use crate::domain::models::AppEntry;
+use crate::infra::{desktop, runner};
+
+const THEMES: &[&str] = &[
+    "TokyoNight",
+    "TokyoNightStorm",
+    "TokyoNightLight",
+    "Dark",
+    "Light",
+    "Dracula",
+    "Nord",
+    "SolarizedLight",
+    "SolarizedDark",
+    "GruvboxLight",
+    "GruvboxDark",
+    "CatppuccinLatte",
+    "CatppuccinFrappe",
+    "CatppuccinMacchiato",
+    "CatppuccinMocha",
+    "KanagawaWave",
+    "KanagawaDragon",
+    "KanagawaLotus",
+    "Moonfly",
+    "Nightfly",
+    "Oxocarbon",
+    "Ferra",
+];
+
+// ---------------------------------------------------------------------------
+// Translations Helper
+// ---------------------------------------------------------------------------
+
+fn translate<'a>(key: &'a str, lang: &str) -> &'a str {
+    match lang {
+        "ES" => match key {
+            "search_placeholder" => "Busca apps, comandos ('>') o ajustes ('..')...",
+            "no_results" => "No se encontraron resultados",
+            "cmd_idle" => "Pulsa Enter para segundo plano, Ctrl+Enter para terminal",
+            "cmd_running" => "Ejecutando comando...",
+            "cmd_success" => "Comando ejecutado con éxito (sin salida)",
+            "cmd_failed" => "El comando falló (sin salida de error)",
+            "info_tip" => "Usa Arriba/Abajo para navegar. Izquierda/Derecha para cambiar valores. Auto-guardado.",
+            "setting_theme" => "Tema",
+            "setting_terminal" => "Terminal Preferida",
+            "setting_opacity" => "Opacidad de Fondo",
+            "setting_width" => "Ancho de Ventana",
+            "setting_height" => "Alto de Ventana",
+            "setting_language" => "Idioma",
+            "launch_tag" => "⏎ Lanzar",
+            _ => key,
+        },
+        _ => match key {
+            "search_placeholder" => "Search apps, run commands ('>'), adjust settings ('..')...",
+            "no_results" => "No results found",
+            "cmd_idle" => "Press Enter to run in background, Ctrl+Enter to run in terminal",
+            "cmd_running" => "Running command...",
+            "cmd_success" => "Command executed successfully (no output)",
+            "cmd_failed" => "Command failed (no error output)",
+            "info_tip" => "Use Up/Down to navigate. Use Left/Right to change values. Changes auto-saved.",
+            "setting_theme" => "Theme",
+            "setting_terminal" => "Preferred Terminal",
+            "setting_opacity" => "Background Opacity",
+            "setting_width" => "Window Width",
+            "setting_height" => "Window Height",
+            "setting_language" => "Language",
+            "launch_tag" => "⏎ Launch",
+            _ => key,
+        },
+    }
+}
+
+// ---------------------------------------------------------------------------
+// State
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Mode {
+    Launcher,
+    CommandRunner,
+    Settings,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum RunnerState {
+    Idle,
+    Running { command: String },
+    Finished { command: String, output: String },
+    Failed { command: String, error: String },
+}
+
+struct CastIt {
+    query: String,
+    all_entries: Vec<AppEntry>,
+    filtered_entries: Vec<(AppEntry, u32)>, // (entry, score)
+    selected_index: usize,
+    mode: Mode,
+    runner_state: RunnerState,
+    config: config::Config,
+    selected_setting: usize, // 0: Theme, 1: Terminal, 2: Opacity, 3: Width, 4: Height, 5: Language
+}
+
+impl CastIt {
+    fn new() -> (Self, Task<Message>) {
+        let entries = desktop::scan_desktop_entries();
+        let loaded_config = config::Config::load();
+        (
+            Self {
+                query: String::new(),
+                all_entries: entries,
+                filtered_entries: Vec::new(),
+                selected_index: 0,
+                mode: Mode::Launcher,
+                runner_state: RunnerState::Idle,
+                config: loaded_config,
+                selected_setting: 0,
+            },
+            iced::widget::operation::focus(Id::new("search-input")),
+        )
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Messages
+// ---------------------------------------------------------------------------
+
+#[to_layer_message]
+#[derive(Debug, Clone)]
+enum Message {
+    QueryChanged(String),
+    Submit,
+    SubmitInTerminal,
+    CommandFinished { command: String, result: Result<String, String> },
+    Escape,
+    ArrowUp,
+    ArrowDown,
+    ArrowLeft,
+    ArrowRight,
+    SelectEntry(usize),
+    WindowFocused,
+}
+
+// ---------------------------------------------------------------------------
+// Core functions (TEA)
+// ---------------------------------------------------------------------------
+
+fn namespace() -> String {
+    String::from("castit")
+}
+
+fn resolve_iced_theme(name: &str) -> iced::Theme {
+    match name {
+        "Light" => iced::Theme::Light,
+        "Dark" => iced::Theme::Dark,
+        "Dracula" => iced::Theme::Dracula,
+        "Nord" => iced::Theme::Nord,
+        "SolarizedLight" => iced::Theme::SolarizedLight,
+        "SolarizedDark" => iced::Theme::SolarizedDark,
+        "GruvboxLight" => iced::Theme::GruvboxLight,
+        "GruvboxDark" => iced::Theme::GruvboxDark,
+        "CatppuccinLatte" => iced::Theme::CatppuccinLatte,
+        "CatppuccinFrappe" => iced::Theme::CatppuccinFrappe,
+        "CatppuccinMacchiato" => iced::Theme::CatppuccinMacchiato,
+        "CatppuccinMocha" => iced::Theme::CatppuccinMocha,
+        "TokyoNight" => iced::Theme::TokyoNight,
+        "TokyoNightStorm" => iced::Theme::TokyoNightStorm,
+        "TokyoNightLight" => iced::Theme::TokyoNightLight,
+        "KanagawaWave" => iced::Theme::KanagawaWave,
+        "KanagawaDragon" => iced::Theme::KanagawaDragon,
+        "KanagawaLotus" => iced::Theme::KanagawaLotus,
+        "Moonfly" => iced::Theme::Moonfly,
+        "Nightfly" => iced::Theme::Nightfly,
+        "Oxocarbon" => iced::Theme::Oxocarbon,
+        "Ferra" => iced::Theme::Ferra,
+        _ => iced::Theme::TokyoNight,
+    }
+}
+
+fn update(state: &mut CastIt, message: Message) -> Task<Message> {
+    match message {
+        Message::QueryChanged(value) => {
+            state.query = value;
+            state.selected_index = 0;
+            if state.query.starts_with("..") {
+                state.mode = Mode::Settings;
+            } else if state.query.starts_with('>') {
+                state.mode = Mode::CommandRunner;
+                if state.query.trim() == ">" {
+                    state.runner_state = RunnerState::Idle;
+                }
+            } else {
+                state.mode = Mode::Launcher;
+                state.runner_state = RunnerState::Idle;
+                update_filtered_entries(state);
+            }
+            Task::none()
+        }
+        Message::Submit => {
+            match state.mode {
+                Mode::Launcher => {
+                    launch_selected(state);
+                    Task::none()
+                }
+                Mode::CommandRunner => {
+                    let cmd = state.query.strip_prefix('>').unwrap_or(&state.query).trim().to_string();
+                    if !cmd.is_empty() {
+                        state.runner_state = RunnerState::Running { command: cmd.clone() };
+                        state.query = "> ".to_string(); // Reset input back to prompt
+                        let cmd_clone = cmd.clone();
+                        Task::perform(
+                            async move {
+                                runner::run_in_background(&cmd_clone)
+                            },
+                            move |res| Message::CommandFinished {
+                                command: cmd.clone(),
+                                result: res,
+                            },
+                        )
+                    } else {
+                        Task::none()
+                    }
+                }
+                Mode::Settings => Task::none(),
+            }
+        }
+        Message::SubmitInTerminal => {
+            if state.mode == Mode::CommandRunner {
+                let cmd = state.query.strip_prefix('>').unwrap_or(&state.query).trim().to_string();
+                if !cmd.is_empty() {
+                    let term_override = state.config.terminal.as_deref();
+                    let _ = runner::run_in_terminal(&cmd, term_override);
+                    std::process::exit(0);
+                }
+            }
+            Task::none()
+        }
+        Message::CommandFinished { command, result } => {
+            match result {
+                Ok(output) => state.runner_state = RunnerState::Finished { command, output },
+                Err(err) => state.runner_state = RunnerState::Failed { command, error: err },
+            }
+            Task::none()
+        }
+        Message::Escape => {
+            std::process::exit(0);
+        }
+        Message::ArrowDown => {
+            match state.mode {
+                Mode::Launcher => {
+                    if !state.filtered_entries.is_empty() {
+                        state.selected_index =
+                            (state.selected_index + 1).min(state.filtered_entries.len() - 1);
+                    }
+                }
+                Mode::Settings => {
+                    state.selected_setting = (state.selected_setting + 1).min(5);
+                }
+                _ => {}
+            }
+            Task::none()
+        }
+        Message::ArrowUp => {
+            match state.mode {
+                Mode::Launcher => {
+                    state.selected_index = state.selected_index.saturating_sub(1);
+                }
+                Mode::Settings => {
+                    state.selected_setting = state.selected_setting.saturating_sub(1);
+                }
+                _ => {}
+            }
+            Task::none()
+        }
+        Message::ArrowLeft => {
+            if state.mode == Mode::Settings {
+                match state.selected_setting {
+                    0 => { // Theme
+                        cycle_theme(state, -1);
+                    }
+                    1 => { // Terminal
+                        cycle_terminal(state, -1);
+                    }
+                    2 => { // Opacity
+                        let opacity = state.config.opacity.unwrap_or(0.92);
+                        state.config.opacity = Some((opacity - 0.05).max(0.1));
+                        state.config.save();
+                    }
+                    3 => { // Width
+                        let width = state.config.width.unwrap_or(800);
+                        state.config.width = Some(width.saturating_sub(50).max(400));
+                        state.config.save();
+                    }
+                    4 => { // Height
+                        let height = state.config.height.unwrap_or(500);
+                        state.config.height = Some(height.saturating_sub(50).max(300));
+                        state.config.save();
+                    }
+                    5 => { // Language
+                        let lang = state.config.language.as_deref().unwrap_or("EN");
+                        state.config.language = Some(if lang == "EN" { "ES".to_string() } else { "EN".to_string() });
+                        state.config.save();
+                    }
+                    _ => {}
+                }
+            }
+            Task::none()
+        }
+        Message::ArrowRight => {
+            if state.mode == Mode::Settings {
+                match state.selected_setting {
+                    0 => { // Theme
+                        cycle_theme(state, 1);
+                    }
+                    1 => { // Terminal
+                        cycle_terminal(state, 1);
+                    }
+                    2 => { // Opacity
+                        let opacity = state.config.opacity.unwrap_or(0.92);
+                        state.config.opacity = Some((opacity + 0.05).min(1.0));
+                        state.config.save();
+                    }
+                    3 => { // Width
+                        let width = state.config.width.unwrap_or(800);
+                        state.config.width = Some((width + 50).min(1920));
+                        state.config.save();
+                    }
+                    4 => { // Height
+                        let height = state.config.height.unwrap_or(500);
+                        state.config.height = Some((height + 50).min(1080));
+                        state.config.save();
+                    }
+                    5 => { // Language
+                        let lang = state.config.language.as_deref().unwrap_or("EN");
+                        state.config.language = Some(if lang == "EN" { "ES".to_string() } else { "EN".to_string() });
+                        state.config.save();
+                    }
+                    _ => {}
+                }
+            }
+            Task::none()
+        }
+        Message::SelectEntry(index) => {
+            if state.mode == Mode::Launcher {
+                state.selected_index = index;
+                launch_selected(state);
+            }
+            Task::none()
+        }
+        Message::WindowFocused => {
+            iced::widget::operation::focus(Id::new("search-input"))
+        }
+        _ => Task::none(),
+    }
+}
+
+fn cycle_theme(state: &mut CastIt, direction: i32) {
+    let current = state.config.theme.as_deref().unwrap_or("TokyoNight");
+    let current_idx = THEMES.iter().position(|&t| t == current).unwrap_or(0);
+    let new_idx = if direction > 0 {
+        (current_idx + 1) % THEMES.len()
+    } else {
+        (current_idx + THEMES.len() - 1) % THEMES.len()
+    };
+    state.config.theme = Some(THEMES[new_idx].to_string());
+    state.config.save();
+}
+
+fn cycle_terminal(state: &mut CastIt, direction: i32) {
+    let terminals = [
+        "Auto",
+        "kitty",
+        "alacritty",
+        "wezterm",
+        "gnome-terminal",
+        "konsole",
+        "xfce4-terminal",
+        "xterm",
+    ];
+    let current = state.config.terminal.as_deref().unwrap_or("Auto");
+    let current_idx = terminals.iter().position(|&t| t == current).unwrap_or(0);
+    let new_idx = if direction > 0 {
+        (current_idx + 1) % terminals.len()
+    } else {
+        (current_idx + terminals.len() - 1) % terminals.len()
+    };
+    state.config.terminal = if terminals[new_idx] == "Auto" {
+        None
+    } else {
+        Some(terminals[new_idx].to_string())
+    };
+    state.config.save();
+}
+
+/// Runs fuzzy matching against all entries using nucleo-matcher.
+fn update_filtered_entries(state: &mut CastIt) {
+    state.filtered_entries.clear();
+
+    if state.query.is_empty() {
+        return;
+    }
+
+    let mut matcher = Matcher::new(Config::DEFAULT);
+    let pattern = Pattern::parse(&state.query, CaseMatching::Ignore, Normalization::Smart);
+
+    let mut buf = Vec::new();
+
+    for entry in &state.all_entries {
+        let haystack = Utf32Str::new(&entry.name, &mut buf);
+        if let Some(score) = pattern.score(haystack, &mut matcher) {
+            state.filtered_entries.push((entry.clone(), score));
+        }
+    }
+
+    // Sort by score descending (best match first)
+    state
+        .filtered_entries
+        .sort_by(|a, b| b.1.cmp(&a.1));
+
+    // Limit visible results
+    state.filtered_entries.truncate(8);
+
+    // Lazily resolve icon paths ONLY for the visible results
+    for (entry, _) in &mut state.filtered_entries {
+        if entry.icon_path.is_none() {
+            if let Some(ref name) = entry.icon {
+                if name.starts_with('/') {
+                    entry.icon_path = Some(name.clone());
+                } else if let Some(result) = linicon::lookup_icon(name).with_size(64).next() {
+                    if let Ok(icon_info) = result {
+                        entry.icon_path = Some(icon_info.path.to_string_lossy().to_string());
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Launches the currently selected application.
+fn launch_selected(state: &CastIt) {
+    if let Some((entry, _)) = state.filtered_entries.get(state.selected_index) {
+        // Split the exec command and spawn it detached
+        let parts: Vec<&str> = entry.exec.split_whitespace().collect();
+        if let Some((program, args)) = parts.split_first() {
+            let _ = Command::new(program)
+                .args(args)
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .spawn();
+        }
+        std::process::exit(0);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// View
+// ---------------------------------------------------------------------------
+
+fn view(state: &CastIt) -> Element<'_, Message> {
+    let lang = state.config.language.as_deref().unwrap_or("EN");
+    let active_theme = resolve_iced_theme(state.config.theme.as_deref().unwrap_or("TokyoNight"));
+    let palette = active_theme.palette();
+    let opacity = state.config.opacity.unwrap_or(0.92);
+
+    let input = text_input(translate("search_placeholder", lang), &state.query)
+        .on_input(Message::QueryChanged)
+        .on_submit(Message::Submit)
+        .padding(Padding { top: 16.0, right: 20.0, bottom: 16.0, left: 20.0 })
+        .size(16)
+        .id(Id::new("search-input"))
+        .style(move |theme: &iced::Theme, _status| {
+            let pal = theme.palette();
+            text_input::Style {
+                background: iced::Background::Color(Color::TRANSPARENT),
+                border: iced::Border::default(),
+                icon: pal.text,
+                placeholder: Color { a: 0.35, ..pal.text },
+                value: pal.text,
+                selection: Color { a: 0.25, ..pal.primary },
+            }
+        });
+
+    let search_pill = container(input)
+        .width(Length::Fill)
+        .style(move |theme: &iced::Theme| {
+            let bg = theme.palette().background;
+            container::Style {
+                background: Some(iced::Background::Color(Color { a: opacity, ..bg })),
+                border: iced::Border {
+                    radius: 26.0.into(),
+                    width: 1.0,
+                    color: Color { a: 0.12, ..theme.palette().text },
+                },
+                ..Default::default()
+            }
+        });
+
+    let show_results_card = match state.mode {
+        Mode::Launcher => !state.filtered_entries.is_empty() || !state.query.is_empty(),
+        _ => true,
+    };
+
+    let mut main_layout = Column::new()
+        .spacing(10)
+        .width(720);
+
+    main_layout = main_layout.push(search_pill);
+
+    if show_results_card {
+        let card_content = match state.mode {
+            Mode::Launcher => {
+                if !state.filtered_entries.is_empty() {
+                    let mut results = Column::new()
+                        .spacing(4)
+                        .padding(Padding { top: 10.0, right: 10.0, bottom: 10.0, left: 10.0 });
+
+                    for (i, (entry, _score)) in state.filtered_entries.iter().enumerate() {
+                        let is_selected = i == state.selected_index;
+                        results = results.push(result_row(entry, is_selected, i, palette, lang));
+                    }
+
+                    scrollable(results).height(Length::Shrink).into()
+                } else {
+                    container(
+                        text(translate("no_results", lang))
+                            .size(14)
+                            .color(Color { a: 0.5, ..palette.text }),
+                    )
+                    .padding(Padding { top: 16.0, right: 20.0, bottom: 16.0, left: 20.0 })
+                    .into()
+                }
+            }
+            Mode::CommandRunner => command_runner_view(state, palette, lang),
+            Mode::Settings => settings_view(state, palette, lang),
+        };
+
+        let results_card = container(card_content)
+            .width(Length::Fill)
+            .style(move |theme: &iced::Theme| {
+                let bg = theme.palette().background;
+                container::Style {
+                    background: Some(iced::Background::Color(Color { a: opacity, ..bg })),
+                    border: iced::Border {
+                        radius: 16.0.into(),
+                        width: 1.0,
+                        color: Color { a: 0.1, ..theme.palette().text },
+                    },
+                    ..Default::default()
+                }
+            });
+
+        main_layout = main_layout.push(results_card);
+    }
+
+    container(main_layout)
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .padding(Padding { top: 40.0, right: 16.0, bottom: 16.0, left: 16.0 })
+        .style(|_theme: &iced::Theme| container::Style {
+            background: Some(iced::Background::Color(Color::TRANSPARENT)),
+            ..Default::default()
+        })
+        .into()
+}
+
+/// Renders the Terminal Command output preview pane.
+fn command_runner_view<'a>(state: &'a CastIt, palette: iced::theme::Palette, lang: &str) -> Element<'a, Message> {
+    let mut console_content = Column::new().spacing(8);
+
+    // Render the executed command prompt at the top of the box
+    if let Some(cmd) = match &state.runner_state {
+        RunnerState::Running { command } => Some(command),
+        RunnerState::Finished { command, .. } => Some(command),
+        RunnerState::Failed { command, .. } => Some(command),
+        _ => None,
+    } {
+        let prompt_line = text(format!("$ {}", cmd))
+            .size(13)
+            .font(Font::MONOSPACE)
+            .color(palette.primary);
+        console_content = console_content.push(prompt_line);
+    }
+
+    let mut text_color = palette.text;
+    let content_text = match &state.runner_state {
+        RunnerState::Idle => {
+            text_color = Color { a: 0.5, ..palette.text };
+            translate("cmd_idle", lang).to_string()
+        }
+        RunnerState::Running { .. } => {
+            text_color = palette.text;
+            translate("cmd_running", lang).to_string()
+        }
+        RunnerState::Finished { output, .. } => {
+            if output.trim().is_empty() {
+                text_color = palette.success;
+                translate("cmd_success", lang).to_string()
+            } else {
+                output.clone()
+            }
+        }
+        RunnerState::Failed { error, .. } => {
+            text_color = palette.danger;
+            if error.trim().is_empty() {
+                translate("cmd_failed", lang).to_string()
+            } else {
+                error.clone()
+            }
+        }
+    };
+
+    let console_text = text(content_text)
+        .size(13)
+        .font(Font::MONOSPACE)
+        .color(text_color);
+
+    console_content = console_content.push(console_text);
+
+    let console = container(
+        scrollable(console_content)
+            .height(Length::Fixed(350.0))
+    )
+    .padding(16)
+    .width(Length::Fill)
+    .style(|theme: &iced::Theme| container::Style {
+        background: Some(iced::Background::Color(Color { a: 0.04, ..theme.palette().text })),
+        border: iced::Border {
+            radius: 8.0.into(),
+            ..Default::default()
+        },
+        ..Default::default()
+    });
+
+    container(console)
+        .padding(Padding { top: 12.0, right: 12.0, bottom: 12.0, left: 12.0 })
+        .into()
+}
+
+/// Renders the Settings Config view.
+fn settings_view<'a>(state: &'a CastIt, palette: iced::theme::Palette, lang: &str) -> Element<'a, Message> {
+    let mut settings_list = Column::new()
+        .spacing(4)
+        .padding(Padding { top: 12.0, right: 10.0, bottom: 12.0, left: 10.0 });
+
+    let active_theme = state.config.theme.as_deref().unwrap_or("TokyoNight");
+    let active_term = state.config.terminal.as_deref().unwrap_or("Auto");
+    let opacity_val = format!("{:.2}", state.config.opacity.unwrap_or(0.92));
+    let width_val = format!("{} px", state.config.width.unwrap_or(800));
+    let height_val = format!("{} px", state.config.height.unwrap_or(500));
+    
+    let config_lang = state.config.language.as_deref().unwrap_or("EN");
+    let lang_display = if config_lang == "ES" { "Español (ES)" } else { "English (EN)" };
+
+    settings_list = settings_list.push(settings_row(translate("setting_theme", lang), active_theme, state.selected_setting == 0, palette));
+    settings_list = settings_list.push(settings_row(translate("setting_terminal", lang), active_term, state.selected_setting == 1, palette));
+    settings_list = settings_list.push(settings_row(translate("setting_opacity", lang), &opacity_val, state.selected_setting == 2, palette));
+    settings_list = settings_list.push(settings_row(translate("setting_width", lang), &width_val, state.selected_setting == 3, palette));
+    settings_list = settings_list.push(settings_row(translate("setting_height", lang), &height_val, state.selected_setting == 4, palette));
+    settings_list = settings_list.push(settings_row(translate("setting_language", lang), lang_display, state.selected_setting == 5, palette));
+
+    let info_text = text(translate("info_tip", lang))
+        .size(11)
+        .color(Color { a: 0.4, ..palette.text });
+
+    let settings_box = Column::new()
+        .spacing(2)
+        .push(scrollable(settings_list).height(Length::Shrink))
+        .push(container(info_text).padding(Padding { top: 4.0, right: 20.0, bottom: 12.0, left: 20.0 }));
+
+    container(settings_box)
+        .width(Length::Fill)
+        .into()
+}
+
+fn settings_row(label: &str, value: &str, selected: bool, palette: iced::theme::Palette) -> Element<'static, Message> {
+    let label_text = text(label.to_string())
+        .size(14)
+        .color(if selected { palette.text } else { Color { a: 0.8, ..palette.text } });
+
+    let value_text = text(value.to_string())
+        .size(13)
+        .font(Font::MONOSPACE)
+        .color(if selected { palette.primary } else { Color { a: 0.6, ..palette.text } });
+
+    let shortcut_tag = if selected {
+        container(text("← / →").size(10).color(palette.primary))
+            .padding(Padding::from([2, 6]))
+            .style(move |theme: &iced::Theme| container::Style {
+                background: Some(iced::Background::Color(Color { a: 0.1, ..theme.palette().primary })),
+                border: iced::Border {
+                    radius: 4.0.into(),
+                    ..Default::default()
+                },
+                ..Default::default()
+            })
+    } else {
+        container(Space::new().width(0).height(0))
+    };
+
+    let content = row![
+        label_text,
+        Space::new().width(Length::Fill),
+        value_text,
+        Space::new().width(Length::Fixed(12.0)),
+        shortcut_tag,
+    ]
+    .spacing(0)
+    .align_y(iced::Alignment::Center);
+
+    container(content)
+        .width(Length::Fill)
+        .padding(Padding::from([10, 14]))
+        .style(move |theme: &iced::Theme| {
+            let pal = theme.palette();
+            let bg = if selected {
+                Color { a: 0.08, ..pal.primary }
+            } else {
+                Color::TRANSPARENT
+            };
+            container::Style {
+                background: Some(iced::Background::Color(bg)),
+                border: iced::Border {
+                    radius: 6.0.into(),
+                    ..Default::default()
+                },
+                ..Default::default()
+            }
+        })
+        .into()
+}
+
+/// Renders a single result row with selection highlight.
+fn result_row(entry: &AppEntry, selected: bool, _index: usize, palette: iced::theme::Palette, lang: &str) -> Element<'static, Message> {
+    let name_text = text(entry.name.clone())
+        .size(14)
+        .color(if selected { palette.text } else { Color { a: 0.9, ..palette.text } });
+
+    let mut row_content = row![].spacing(12).align_y(iced::Alignment::Center);
+
+    if let Some(path) = &entry.icon_path {
+        if path.ends_with(".svg") {
+            let svg_handle = svg::Handle::from_path(path);
+            row_content = row_content.push(svg(svg_handle).width(28).height(28));
+        } else {
+            row_content = row_content.push(image(path).width(28).height(28));
+        }
+    } else {
+        row_content = row_content.push(Space::new().width(Length::Fixed(28.0)));
+    }
+
+    let mut details = Column::new().spacing(2);
+    details = details.push(name_text);
+
+    if let Some(desc) = &entry.description {
+        let desc_text = text(desc.clone())
+            .size(11)
+            .color(Color { a: 0.45, ..palette.text });
+        details = details.push(desc_text);
+    }
+
+    row_content = row_content.push(details);
+    row_content = row_content.push(Space::new().width(Length::Fill));
+
+    // Shortcut tag on the right (Raycast Style)
+    if selected {
+        let tag = container(text(translate("launch_tag", lang)).size(10).color(palette.primary))
+            .padding(Padding::from([3, 8]))
+            .style(move |theme: &iced::Theme| container::Style {
+                background: Some(iced::Background::Color(Color { a: 0.1, ..theme.palette().primary })),
+                border: iced::Border {
+                    radius: 4.0.into(),
+                    ..Default::default()
+                },
+                ..Default::default()
+            });
+        row_content = row_content.push(tag);
+    }
+
+    container(row_content)
+        .width(Length::Fill)
+        .padding(Padding::from([8, 12]))
+        .style(move |theme: &iced::Theme| {
+            let pal = theme.palette();
+            let bg = if selected {
+                Color { a: 0.08, ..pal.primary }
+            } else {
+                Color::TRANSPARENT
+            };
+            container::Style {
+                background: Some(iced::Background::Color(bg)),
+                border: iced::Border {
+                    radius: 6.0.into(),
+                    ..Default::default()
+                },
+                ..Default::default()
+            }
+        })
+        .into()
+}
+
+// ---------------------------------------------------------------------------
+// Keyboard subscription
+// ---------------------------------------------------------------------------
+
+fn subscription(_state: &CastIt) -> iced::Subscription<Message> {
+    iced::event::listen_with(|event, _status, _id| match event {
+        iced::Event::Keyboard(iced::keyboard::Event::KeyPressed { key, modifiers, .. }) => {
+            match key {
+                iced::keyboard::Key::Named(iced::keyboard::key::Named::Escape) => {
+                    Some(Message::Escape)
+                }
+                iced::keyboard::Key::Named(iced::keyboard::key::Named::ArrowDown) => {
+                    Some(Message::ArrowDown)
+                }
+                iced::keyboard::Key::Named(iced::keyboard::key::Named::ArrowUp) => {
+                    Some(Message::ArrowUp)
+                }
+                iced::keyboard::Key::Named(iced::keyboard::key::Named::ArrowLeft) => {
+                    Some(Message::ArrowLeft)
+                }
+                iced::keyboard::Key::Named(iced::keyboard::key::Named::ArrowRight) => {
+                    Some(Message::ArrowRight)
+                }
+                iced::keyboard::Key::Named(iced::keyboard::key::Named::Enter) => {
+                    if modifiers.control() {
+                        Some(Message::SubmitInTerminal)
+                    } else {
+                        // Standard Enter is handled via text_input on_submit
+                        None
+                    }
+                }
+                _ => None,
+            }
+        }
+        iced::Event::Window(iced::window::Event::Focused) => {
+            Some(Message::WindowFocused)
+        }
+        _ => None,
+    })
+}
+
+// ---------------------------------------------------------------------------
+// Entry point
+// ---------------------------------------------------------------------------
+
+pub fn run() -> Result<(), iced_layershell::Error> {
+    let config = config::Config::load();
+    let width = config.width.unwrap_or(800) as u32;
+    let height = config.height.unwrap_or(500) as u32;
+
+    application(CastIt::new, namespace, update, view)
+        .subscription(subscription)
+        .theme(|state: &CastIt| {
+            Some(resolve_iced_theme(state.config.theme.as_deref().unwrap_or("TokyoNight")))
+        })
+        .style(|_state, _theme| iced::theme::Style {
+            background_color: iced::Color::TRANSPARENT,
+            text_color: iced::Color::WHITE,
+        })
+        .settings(Settings {
+            layer_settings: LayerShellSettings {
+                anchor: Anchor::empty(),
+                layer: Layer::Overlay,
+                keyboard_interactivity: KeyboardInteractivity::Exclusive,
+                exclusive_zone: -1,
+                size: Some((width, height)),
+                start_mode: StartMode::Active,
+                ..Default::default()
+            },
+            ..Default::default()
+        })
+        .run()
+}

@@ -1,0 +1,17 @@
+[package]
+name = "castit"
+version = "0.1.0"
+edition = "2021"
+description = "A developer-focused command palette and launcher for Linux"
+license = "MIT"
+repository = "https://github.com/alvaro/castit"
+
+[dependencies]
+iced = { version = "0.14", features = ["image", "svg"] }
+iced_layershell = "0.18.1"
+freedesktop-desktop-entry = "0.8"
+nucleo-matcher = "0.3"
+xdg = "3.0"
+linicon = "2.3"
+serde = { version = "1.0", features = ["derive"] }
+toml = "0.8"
