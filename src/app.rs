@@ -38,14 +38,27 @@ const THEMES: &[&str] = &[
 ];
 
 // ---------------------------------------------------------------------------
+// File & Folder Entry Models
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct FileEntry {
+    name: String,
+    path: String,
+    is_dir: bool,
+    icon_path: Option<String>,
+}
+
+// ---------------------------------------------------------------------------
 // Translations Helper
 // ---------------------------------------------------------------------------
 
 fn translate<'a>(key: &'a str, lang: &str) -> &'a str {
     match lang {
         "ES" => match key {
-            "search_placeholder" => "Busca apps, comandos ('>') o ajustes ('..')...",
+            "search_placeholder" => "Busca apps, comandos ('>') o archivos/carpetas ('/','~')...",
             "no_results" => "No se encontraron resultados",
+            "no_files" => "Directorio vacío o no encontrado",
             "cmd_idle" => "Pulsa Enter para segundo plano, Ctrl+Enter para terminal",
             "cmd_running" => "Ejecutando comando...",
             "cmd_success" => "Comando ejecutado con éxito (sin salida)",
@@ -61,8 +74,9 @@ fn translate<'a>(key: &'a str, lang: &str) -> &'a str {
             _ => key,
         },
         _ => match key {
-            "search_placeholder" => "Search apps, run commands ('>'), adjust settings ('..')...",
+            "search_placeholder" => "Search apps, commands ('>') or files/folders ('/','~')...",
             "no_results" => "No results found",
+            "no_files" => "Empty directory or not found",
             "cmd_idle" => "Press Enter to run in background, Ctrl+Enter to run in terminal",
             "cmd_running" => "Running command...",
             "cmd_success" => "Command executed successfully (no output)",
@@ -88,6 +102,7 @@ fn translate<'a>(key: &'a str, lang: &str) -> &'a str {
 enum Mode {
     Launcher,
     CommandRunner,
+    FileBrowser,
     Settings,
 }
 
@@ -108,6 +123,9 @@ struct CastIt {
     runner_state: RunnerState,
     config: config::Config,
     selected_setting: usize, // 0: Theme, 1: Terminal, 2: Opacity, 3: Width, 4: Height, 5: Language
+    current_parent_dir: String,
+    directory_entries: Vec<FileEntry>,
+    filtered_files: Vec<(FileEntry, u32)>, // (entry, score)
 }
 
 impl CastIt {
@@ -124,6 +142,9 @@ impl CastIt {
                 runner_state: RunnerState::Idle,
                 config: loaded_config,
                 selected_setting: 0,
+                current_parent_dir: String::new(),
+                directory_entries: Vec::new(),
+                filtered_files: Vec::new(),
             },
             iced::widget::operation::focus(Id::new("search-input")),
         )
@@ -148,6 +169,7 @@ enum Message {
     ArrowRight,
     SelectEntry(usize),
     WindowFocused,
+    ClearQuery,
 }
 
 // ---------------------------------------------------------------------------
@@ -188,6 +210,15 @@ fn resolve_iced_theme(name: &str) -> iced::Theme {
 
 fn update(state: &mut CastIt, message: Message) -> Task<Message> {
     match message {
+        Message::ClearQuery => {
+            state.query.clear();
+            state.selected_index = 0;
+            state.mode = Mode::Launcher;
+            state.runner_state = RunnerState::Idle;
+            state.filtered_entries.clear();
+            state.filtered_files.clear();
+            Task::none()
+        }
         Message::QueryChanged(value) => {
             state.query = value;
             state.selected_index = 0;
@@ -198,6 +229,9 @@ fn update(state: &mut CastIt, message: Message) -> Task<Message> {
                 if state.query.trim() == ">" {
                     state.runner_state = RunnerState::Idle;
                 }
+            } else if state.query.starts_with('/') || state.query.starts_with('~') {
+                state.mode = Mode::FileBrowser;
+                update_filtered_files(state);
             } else {
                 state.mode = Mode::Launcher;
                 state.runner_state = RunnerState::Idle;
@@ -229,6 +263,19 @@ fn update(state: &mut CastIt, message: Message) -> Task<Message> {
                     } else {
                         Task::none()
                     }
+                }
+                Mode::FileBrowser => {
+                    if let Some((entry, _)) = state.filtered_files.get(state.selected_index) {
+                        // Open file or directory using system default (xdg-open) and exit
+                        let _ = Command::new("xdg-open")
+                            .arg(&entry.path)
+                            .stdin(std::process::Stdio::null())
+                            .stdout(std::process::Stdio::null())
+                            .stderr(std::process::Stdio::null())
+                            .spawn();
+                        std::process::exit(0);
+                    }
+                    Task::none()
                 }
                 Mode::Settings => Task::none(),
             }
@@ -262,6 +309,12 @@ fn update(state: &mut CastIt, message: Message) -> Task<Message> {
                             (state.selected_index + 1).min(state.filtered_entries.len() - 1);
                     }
                 }
+                Mode::FileBrowser => {
+                    if !state.filtered_files.is_empty() {
+                        state.selected_index =
+                            (state.selected_index + 1).min(state.filtered_files.len() - 1);
+                    }
+                }
                 Mode::Settings => {
                     state.selected_setting = (state.selected_setting + 1).min(5);
                 }
@@ -272,6 +325,9 @@ fn update(state: &mut CastIt, message: Message) -> Task<Message> {
         Message::ArrowUp => {
             match state.mode {
                 Mode::Launcher => {
+                    state.selected_index = state.selected_index.saturating_sub(1);
+                }
+                Mode::FileBrowser => {
                     state.selected_index = state.selected_index.saturating_sub(1);
                 }
                 Mode::Settings => {
@@ -316,36 +372,54 @@ fn update(state: &mut CastIt, message: Message) -> Task<Message> {
             Task::none()
         }
         Message::ArrowRight => {
-            if state.mode == Mode::Settings {
-                match state.selected_setting {
-                    0 => { // Theme
-                        cycle_theme(state, 1);
+            match state.mode {
+                Mode::Settings => {
+                    match state.selected_setting {
+                        0 => { // Theme
+                            cycle_theme(state, 1);
+                        }
+                        1 => { // Terminal
+                            cycle_terminal(state, 1);
+                        }
+                        2 => { // Opacity
+                            let opacity = state.config.opacity.unwrap_or(0.92);
+                            state.config.opacity = Some((opacity + 0.05).min(1.0));
+                            state.config.save();
+                        }
+                        3 => { // Width
+                            let width = state.config.width.unwrap_or(800);
+                            state.config.width = Some((width + 50).min(1920));
+                            state.config.save();
+                        }
+                        4 => { // Height
+                            let height = state.config.height.unwrap_or(500);
+                            state.config.height = Some((height + 50).min(1080));
+                            state.config.save();
+                        }
+                        5 => { // Language
+                            let lang = state.config.language.as_deref().unwrap_or("EN");
+                            state.config.language = Some(if lang == "EN" { "ES".to_string() } else { "EN".to_string() });
+                            state.config.save();
+                        }
+                        _ => {}
                     }
-                    1 => { // Terminal
-                        cycle_terminal(state, 1);
-                    }
-                    2 => { // Opacity
-                        let opacity = state.config.opacity.unwrap_or(0.92);
-                        state.config.opacity = Some((opacity + 0.05).min(1.0));
-                        state.config.save();
-                    }
-                    3 => { // Width
-                        let width = state.config.width.unwrap_or(800);
-                        state.config.width = Some((width + 50).min(1920));
-                        state.config.save();
-                    }
-                    4 => { // Height
-                        let height = state.config.height.unwrap_or(500);
-                        state.config.height = Some((height + 50).min(1080));
-                        state.config.save();
-                    }
-                    5 => { // Language
-                        let lang = state.config.language.as_deref().unwrap_or("EN");
-                        state.config.language = Some(if lang == "EN" { "ES".to_string() } else { "EN".to_string() });
-                        state.config.save();
-                    }
-                    _ => {}
                 }
+                Mode::FileBrowser => {
+                    if let Some((entry, _)) = state.filtered_files.get(state.selected_index) {
+                        if entry.is_dir {
+                            // Autocomplete directory path
+                            let mut display_path = entry.path.clone();
+                            let home = std::env::var("HOME").unwrap_or_default();
+                            if !home.is_empty() && display_path.starts_with(&home) {
+                                display_path = display_path.replacen(&home, "~", 1);
+                            }
+                            state.query = format!("{}/", display_path);
+                            state.selected_index = 0;
+                            update_filtered_files(state);
+                        }
+                    }
+                }
+                _ => {}
             }
             Task::none()
         }
@@ -399,6 +473,116 @@ fn cycle_terminal(state: &mut CastIt, direction: i32) {
         Some(terminals[new_idx].to_string())
     };
     state.config.save();
+}
+
+/// Helper to parse path query into parent folder and filter query
+fn parse_path_query(query: &str) -> Option<(String, String)> {
+    if !query.starts_with('/') && !query.starts_with('~') {
+        return None;
+    }
+
+    let expanded = if let Some(stripped) = query.strip_prefix('~') {
+        let home = std::env::var("HOME").unwrap_or_else(|_| "/home/alvaro".to_string());
+        format!("{}{}", home, stripped)
+    } else {
+        query.to_string()
+    };
+
+    if let Some(idx) = expanded.rfind('/') {
+        let (parent, filter) = expanded.split_at(idx + 1);
+        Some((parent.to_string(), filter.to_string()))
+    } else {
+        let home = std::env::var("HOME").unwrap_or_else(|_| "/home/alvaro".to_string());
+        if let Some(idx) = home.rfind('/') {
+            let (parent, _) = home.split_at(idx + 1);
+            Some((parent.to_string(), home.strip_prefix(&parent).unwrap_or("").to_string()))
+        } else {
+            None
+        }
+    }
+}
+
+/// Reads directory entries from disk and sorts them (directories first, then alphabetically)
+fn read_directory(path: &str) -> Vec<FileEntry> {
+    let mut entries = Vec::new();
+    if let Ok(read_dir) = std::fs::read_dir(path) {
+        for entry_result in read_dir {
+            if let Ok(dir_entry) = entry_result {
+                let file_name = dir_entry.file_name().to_string_lossy().to_string();
+                let full_path = dir_entry.path().to_string_lossy().to_string();
+                let is_dir = dir_entry.file_type().map(|t| t.is_dir()).unwrap_or(false);
+
+                entries.push(FileEntry {
+                    name: file_name,
+                    path: full_path,
+                    is_dir,
+                    icon_path: None,
+                });
+            }
+        }
+    }
+
+    entries.sort_by(|a, b| {
+        if a.is_dir && !b.is_dir {
+            std::cmp::Ordering::Less
+        } else if !a.is_dir && b.is_dir {
+            std::cmp::Ordering::Greater
+        } else {
+            a.name.to_lowercase().cmp(&b.name.to_lowercase())
+        }
+    });
+
+    entries
+}
+
+/// Performs fuzzy filtering on the directory entries using nucleo-matcher
+fn update_filtered_files(state: &mut CastIt) {
+    state.filtered_files.clear();
+
+    if let Some((parent, filter)) = parse_path_query(&state.query) {
+        if parent != state.current_parent_dir {
+            state.current_parent_dir = parent.clone();
+            state.directory_entries = read_directory(&parent);
+        }
+
+        let mut matcher = Matcher::new(Config::DEFAULT);
+        let pattern = Pattern::parse(&filter, CaseMatching::Ignore, Normalization::Smart);
+        let mut buf = Vec::new();
+
+        let filter_starts_with_dot = filter.starts_with('.');
+
+        for entry in &state.directory_entries {
+            // Hide dotfiles by default, unless requested
+            if entry.name.starts_with('.') && !filter_starts_with_dot {
+                continue;
+            }
+
+            let haystack = Utf32Str::new(&entry.name, &mut buf);
+            if filter.is_empty() {
+                state.filtered_files.push((entry.clone(), 1));
+            } else if let Some(score) = pattern.score(haystack, &mut matcher) {
+                state.filtered_files.push((entry.clone(), score));
+            }
+        }
+
+        if !filter.is_empty() {
+            state.filtered_files.sort_by(|a, b| b.1.cmp(&a.1));
+        }
+
+        state.filtered_files.truncate(8);
+
+        // Resolve icon paths for the top results
+        for (entry, _) in &mut state.filtered_files {
+            if entry.icon_path.is_none() {
+                let icon_name = if entry.is_dir { "folder" } else { "text-x-generic" };
+                if let Some(result) = linicon::lookup_icon(icon_name).with_size(64).next() {
+                    if let Ok(icon_info) = result {
+                        entry.icon_path = Some(icon_info.path.to_string_lossy().to_string());
+                    }
+                }
+            }
+        }
+    }
 }
 
 /// Runs fuzzy matching against all entries using nucleo-matcher.
@@ -507,6 +691,7 @@ fn view(state: &CastIt) -> Element<'_, Message> {
 
     let show_results_card = match state.mode {
         Mode::Launcher => !state.filtered_entries.is_empty() || !state.query.is_empty(),
+        Mode::FileBrowser => !state.filtered_files.is_empty() || !state.query.is_empty(),
         _ => true,
     };
 
@@ -533,6 +718,28 @@ fn view(state: &CastIt) -> Element<'_, Message> {
                 } else {
                     container(
                         text(translate("no_results", lang))
+                            .size(14)
+                            .color(Color { a: 0.5, ..palette.text }),
+                    )
+                    .padding(Padding { top: 16.0, right: 20.0, bottom: 16.0, left: 20.0 })
+                    .into()
+                }
+            }
+            Mode::FileBrowser => {
+                if !state.filtered_files.is_empty() {
+                    let mut results = Column::new()
+                        .spacing(4)
+                        .padding(Padding { top: 10.0, right: 10.0, bottom: 10.0, left: 10.0 });
+
+                    for (i, (entry, _score)) in state.filtered_files.iter().enumerate() {
+                        let is_selected = i == state.selected_index;
+                        results = results.push(file_row(entry, is_selected, i, palette, lang));
+                    }
+
+                    scrollable(results).height(Length::Shrink).into()
+                } else {
+                    container(
+                        text(translate("no_files", lang))
                             .size(14)
                             .color(Color { a: 0.5, ..palette.text }),
                     )
@@ -739,7 +946,7 @@ fn settings_row(label: &str, value: &str, selected: bool, palette: iced::theme::
         .into()
 }
 
-/// Renders a single result row with selection highlight.
+/// Renders a single application result row
 fn result_row(entry: &AppEntry, selected: bool, _index: usize, palette: iced::theme::Palette, lang: &str) -> Element<'static, Message> {
     let name_text = text(entry.name.clone())
         .size(14)
@@ -771,9 +978,95 @@ fn result_row(entry: &AppEntry, selected: bool, _index: usize, palette: iced::th
     row_content = row_content.push(details);
     row_content = row_content.push(Space::new().width(Length::Fill));
 
-    // Shortcut tag on the right (Raycast Style)
     if selected {
         let tag = container(text(translate("launch_tag", lang)).size(10).color(palette.primary))
+            .padding(Padding::from([3, 8]))
+            .style(move |theme: &iced::Theme| container::Style {
+                background: Some(iced::Background::Color(Color { a: 0.1, ..theme.palette().primary })),
+                border: iced::Border {
+                    radius: 4.0.into(),
+                    ..Default::default()
+                },
+                ..Default::default()
+            });
+        row_content = row_content.push(tag);
+    }
+
+    container(row_content)
+        .width(Length::Fill)
+        .padding(Padding::from([8, 12]))
+        .style(move |theme: &iced::Theme| {
+            let pal = theme.palette();
+            let bg = if selected {
+                Color { a: 0.08, ..pal.primary }
+            } else {
+                Color::TRANSPARENT
+            };
+            container::Style {
+                background: Some(iced::Background::Color(bg)),
+                border: iced::Border {
+                    radius: 6.0.into(),
+                    ..Default::default()
+                },
+                ..Default::default()
+            }
+        })
+        .into()
+}
+
+/// Renders a single file/directory result row
+fn file_row(entry: &FileEntry, selected: bool, _index: usize, palette: iced::theme::Palette, lang: &str) -> Element<'static, Message> {
+    let name_text = text(entry.name.clone())
+        .size(14)
+        .color(if selected { palette.text } else { Color { a: 0.9, ..palette.text } });
+
+    let mut row_content = row![].spacing(12).align_y(iced::Alignment::Center);
+
+    if let Some(path) = &entry.icon_path {
+        if path.ends_with(".svg") {
+            let svg_handle = svg::Handle::from_path(path);
+            row_content = row_content.push(svg(svg_handle).width(28).height(28));
+        } else {
+            row_content = row_content.push(image(path).width(28).height(28));
+        }
+    } else {
+        row_content = row_content.push(Space::new().width(Length::Fixed(28.0)));
+    }
+
+    let mut details = Column::new().spacing(2);
+    details = details.push(name_text);
+
+    let clean_path = if entry.is_dir {
+        entry.path.clone()
+    } else {
+        if let Some(idx) = entry.path.rfind('/') {
+            entry.path[..idx].to_string()
+        } else {
+            entry.path.clone()
+        }
+    };
+
+    let mut display_path = clean_path;
+    let home = std::env::var("HOME").unwrap_or_default();
+    if !home.is_empty() && display_path.starts_with(&home) {
+        display_path = display_path.replacen(&home, "~", 1);
+    }
+
+    let desc_text = text(display_path)
+        .size(11)
+        .color(Color { a: 0.45, ..palette.text });
+    details = details.push(desc_text);
+
+    row_content = row_content.push(details);
+    row_content = row_content.push(Space::new().width(Length::Fill));
+
+    if selected {
+        let tag_text = if entry.is_dir {
+            if lang == "ES" { "⏎ Abrir | → Navegar" } else { "⏎ Open | → Navigate" }
+        } else {
+            if lang == "ES" { "⏎ Lanzar" } else { "⏎ Launch" }
+        };
+        let tag = container(text(tag_text).size(10).color(palette.primary))
             .padding(Padding::from([3, 8]))
             .style(move |theme: &iced::Theme| container::Style {
                 background: Some(iced::Background::Color(Color { a: 0.1, ..theme.palette().primary })),
@@ -812,41 +1105,61 @@ fn result_row(entry: &AppEntry, selected: bool, _index: usize, palette: iced::th
 // Keyboard subscription
 // ---------------------------------------------------------------------------
 
-fn subscription(_state: &CastIt) -> iced::Subscription<Message> {
-    iced::event::listen_with(|event, _status, _id| match event {
-        iced::Event::Keyboard(iced::keyboard::Event::KeyPressed { key, modifiers, .. }) => {
-            match key {
-                iced::keyboard::Key::Named(iced::keyboard::key::Named::Escape) => {
-                    Some(Message::Escape)
-                }
-                iced::keyboard::Key::Named(iced::keyboard::key::Named::ArrowDown) => {
-                    Some(Message::ArrowDown)
-                }
-                iced::keyboard::Key::Named(iced::keyboard::key::Named::ArrowUp) => {
-                    Some(Message::ArrowUp)
-                }
-                iced::keyboard::Key::Named(iced::keyboard::key::Named::ArrowLeft) => {
-                    Some(Message::ArrowLeft)
-                }
-                iced::keyboard::Key::Named(iced::keyboard::key::Named::ArrowRight) => {
-                    Some(Message::ArrowRight)
-                }
-                iced::keyboard::Key::Named(iced::keyboard::key::Named::Enter) => {
-                    if modifiers.control() {
-                        Some(Message::SubmitInTerminal)
-                    } else {
-                        // Standard Enter is handled via text_input on_submit
-                        None
+fn subscription(state: &CastIt) -> iced::Subscription<Message> {
+    match state.mode {
+        Mode::Settings => {
+            iced::event::listen_with(|event, _status, _id| match event {
+                iced::Event::Keyboard(iced::keyboard::Event::KeyPressed { key, modifiers, .. }) => {
+                    match key {
+                        iced::keyboard::Key::Named(iced::keyboard::key::Named::Escape) => Some(Message::Escape),
+                        iced::keyboard::Key::Named(iced::keyboard::key::Named::ArrowDown) => Some(Message::ArrowDown),
+                        iced::keyboard::Key::Named(iced::keyboard::key::Named::ArrowUp) => Some(Message::ArrowUp),
+                        iced::keyboard::Key::Named(iced::keyboard::key::Named::ArrowLeft) => Some(Message::ArrowLeft),
+                        iced::keyboard::Key::Named(iced::keyboard::key::Named::ArrowRight) => Some(Message::ArrowRight),
+                        iced::keyboard::Key::Named(iced::keyboard::key::Named::Delete) if modifiers.shift() => Some(Message::ClearQuery),
+                        iced::keyboard::Key::Named(iced::keyboard::key::Named::Backspace) if modifiers.shift() => Some(Message::ClearQuery),
+                        _ => None,
                     }
                 }
+                iced::Event::Window(iced::window::Event::Focused) => Some(Message::WindowFocused),
                 _ => None,
-            }
+            })
         }
-        iced::Event::Window(iced::window::Event::Focused) => {
-            Some(Message::WindowFocused)
+        Mode::FileBrowser => {
+            iced::event::listen_with(|event, _status, _id| match event {
+                iced::Event::Keyboard(iced::keyboard::Event::KeyPressed { key, modifiers, .. }) => {
+                    match key {
+                        iced::keyboard::Key::Named(iced::keyboard::key::Named::Escape) => Some(Message::Escape),
+                        iced::keyboard::Key::Named(iced::keyboard::key::Named::ArrowDown) => Some(Message::ArrowDown),
+                        iced::keyboard::Key::Named(iced::keyboard::key::Named::ArrowUp) => Some(Message::ArrowUp),
+                        iced::keyboard::Key::Named(iced::keyboard::key::Named::ArrowRight) => Some(Message::ArrowRight),
+                        iced::keyboard::Key::Named(iced::keyboard::key::Named::Delete) if modifiers.shift() => Some(Message::ClearQuery),
+                        iced::keyboard::Key::Named(iced::keyboard::key::Named::Backspace) if modifiers.shift() => Some(Message::ClearQuery),
+                        _ => None,
+                    }
+                }
+                iced::Event::Window(iced::window::Event::Focused) => Some(Message::WindowFocused),
+                _ => None,
+            })
         }
-        _ => None,
-    })
+        _ => {
+            iced::event::listen_with(|event, _status, _id| match event {
+                iced::Event::Keyboard(iced::keyboard::Event::KeyPressed { key, modifiers, .. }) => {
+                    match key {
+                        iced::keyboard::Key::Named(iced::keyboard::key::Named::Escape) => Some(Message::Escape),
+                        iced::keyboard::Key::Named(iced::keyboard::key::Named::ArrowDown) => Some(Message::ArrowDown),
+                        iced::keyboard::Key::Named(iced::keyboard::key::Named::ArrowUp) => Some(Message::ArrowUp),
+                        iced::keyboard::Key::Named(iced::keyboard::key::Named::Delete) if modifiers.shift() => Some(Message::ClearQuery),
+                        iced::keyboard::Key::Named(iced::keyboard::key::Named::Backspace) if modifiers.shift() => Some(Message::ClearQuery),
+                        iced::keyboard::Key::Named(iced::keyboard::key::Named::Enter) if modifiers.control() => Some(Message::SubmitInTerminal),
+                        _ => None,
+                    }
+                }
+                iced::Event::Window(iced::window::Event::Focused) => Some(Message::WindowFocused),
+                _ => None,
+            })
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
