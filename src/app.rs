@@ -1,5 +1,6 @@
 use iced::widget::{container, image, row, scrollable, svg, text, text_input, Column, Space, Id};
-use iced::{Element, Length, Padding, Task, Font, Color};
+use iced::{Element, Length, Padding, Task, Font, Color, ContentFit};
+use iced::alignment::{Horizontal, Vertical};
 use iced_layershell::application;
 use iced_layershell::reexport::{Anchor, KeyboardInteractivity, Layer};
 use iced_layershell::settings::{LayerShellSettings, Settings, StartMode};
@@ -126,6 +127,7 @@ struct CastIt {
     current_parent_dir: String,
     directory_entries: Vec<FileEntry>,
     filtered_files: Vec<(FileEntry, u32)>, // (entry, score)
+    preview_active: bool,
 }
 
 impl CastIt {
@@ -145,6 +147,7 @@ impl CastIt {
                 current_parent_dir: String::new(),
                 directory_entries: Vec::new(),
                 filtered_files: Vec::new(),
+                preview_active: false,
             },
             iced::widget::operation::focus(Id::new("search-input")),
         )
@@ -170,6 +173,7 @@ enum Message {
     SelectEntry(usize),
     WindowFocused,
     ClearQuery,
+    TogglePreview,
 }
 
 // ---------------------------------------------------------------------------
@@ -215,6 +219,7 @@ fn update(state: &mut CastIt, message: Message) -> Task<Message> {
             state.selected_index = 0;
             state.mode = Mode::Launcher;
             state.runner_state = RunnerState::Idle;
+            state.preview_active = false;
             state.filtered_entries.clear();
             state.filtered_files.clear();
             Task::none()
@@ -222,6 +227,7 @@ fn update(state: &mut CastIt, message: Message) -> Task<Message> {
         Message::QueryChanged(value) => {
             state.query = value;
             state.selected_index = 0;
+            state.preview_active = false;
             if state.query.starts_with("..") {
                 state.mode = Mode::Settings;
             } else if state.query.starts_with('>') {
@@ -420,6 +426,12 @@ fn update(state: &mut CastIt, message: Message) -> Task<Message> {
                     }
                 }
                 _ => {}
+            }
+            Task::none()
+        }
+        Message::TogglePreview => {
+            if state.mode == Mode::FileBrowser && !state.filtered_files.is_empty() {
+                state.preview_active = !state.preview_active;
             }
             Task::none()
         }
@@ -726,7 +738,19 @@ fn view(state: &CastIt) -> Element<'_, Message> {
                 }
             }
             Mode::FileBrowser => {
-                if !state.filtered_files.is_empty() {
+                if state.preview_active {
+                    if let Some((entry, _)) = state.filtered_files.get(state.selected_index) {
+                        preview_pane(entry, palette, lang)
+                    } else {
+                        container(
+                            text(translate("no_files", lang))
+                                .size(14)
+                                .color(Color { a: 0.5, ..palette.text }),
+                        )
+                        .padding(Padding { top: 16.0, right: 20.0, bottom: 16.0, left: 20.0 })
+                        .into()
+                    }
+                } else if !state.filtered_files.is_empty() {
                     let mut results = Column::new()
                         .spacing(4)
                         .padding(Padding { top: 10.0, right: 10.0, bottom: 10.0, left: 10.0 });
@@ -780,7 +804,7 @@ fn view(state: &CastIt) -> Element<'_, Message> {
         .into()
 }
 
-/// Renders the Terminal Command output preview pane.
+/// Renders the Terminal Output preview block.
 fn command_runner_view<'a>(state: &'a CastIt, palette: iced::theme::Palette, lang: &str) -> Element<'a, Message> {
     let mut console_content = Column::new().spacing(8);
 
@@ -853,7 +877,7 @@ fn command_runner_view<'a>(state: &'a CastIt, palette: iced::theme::Palette, lan
         .into()
 }
 
-/// Renders the Settings Config view.
+/// Renders the Settings panel.
 fn settings_view<'a>(state: &'a CastIt, palette: iced::theme::Palette, lang: &str) -> Element<'a, Message> {
     let mut settings_list = Column::new()
         .spacing(4)
@@ -1101,6 +1125,193 @@ fn file_row(entry: &FileEntry, selected: bool, _index: usize, palette: iced::the
         .into()
 }
 
+/// Renders the Quick Look Document/Folder Preview pane.
+fn preview_pane<'a>(entry: &FileEntry, palette: iced::theme::Palette, lang: &str) -> Element<'a, Message> {
+    let mut layout = Column::new()
+        .spacing(10)
+        .padding(16)
+        .width(Length::Fill)
+        .align_x(iced::Alignment::Center);
+
+    // Filename Header
+    let filename = text(entry.name.clone())
+        .size(15)
+        .font(iced::Font {
+            weight: iced::font::Weight::Bold,
+            ..Default::default()
+        })
+        .color(palette.text);
+    layout = layout.push(filename);
+
+    // Metadata loading (size and type)
+    let mut metadata_info = String::new();
+    if let Ok(meta) = std::fs::metadata(&entry.path) {
+        let size = meta.len();
+        let size_str = if size < 1024 {
+            format!("{} B", size)
+        } else if size < 1024 * 1024 {
+            format!("{:.1} KB", size as f64 / 1024.0)
+        } else {
+            format!("{:.1} MB", size as f64 / (1024.0 * 1024.0))
+        };
+        
+        let type_display = if entry.is_dir {
+            (if lang == "ES" { "Carpeta" } else { "Folder" }).to_string()
+        } else {
+            if let Some(ext) = std::path::Path::new(&entry.path).extension() {
+                format!("{} File", ext.to_string_lossy().to_uppercase())
+            } else {
+                (if lang == "ES" { "Archivo" } else { "File" }).to_string()
+            }
+        };
+        metadata_info = format!("{}  •  {}", type_display, size_str);
+    }
+
+    if !metadata_info.is_empty() {
+        let meta_text = text(metadata_info)
+            .size(11)
+            .color(Color { a: 0.45, ..palette.text });
+        layout = layout.push(meta_text);
+    }
+
+    layout = layout.push(Space::new().height(Length::Fixed(4.0)));
+
+    // Preview Pane Body depending on extension
+    let preview_body: Element<'a, Message> = if entry.is_dir {
+        // Folder big icon
+        let icon_widget = if let Some(path) = &entry.icon_path {
+            if path.ends_with(".svg") {
+                let svg_handle = svg::Handle::from_path(path);
+                Element::from(svg(svg_handle).width(128).height(128))
+            } else {
+                Element::from(image(path).width(128).height(128))
+            }
+        } else {
+            Element::from(text("📁").size(64))
+        };
+        Element::from(container(icon_widget).padding(10))
+    } else {
+        let path = std::path::Path::new(&entry.path);
+        let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
+        
+        match ext.as_str() {
+            "png" | "jpg" | "jpeg" | "gif" | "webp" => {
+                let img = image(entry.path.clone())
+                    .width(Length::Fixed(450.0))
+                    .height(Length::Fixed(250.0))
+                    .content_fit(ContentFit::Contain);
+                Element::from(container(img)
+                    .width(Length::Fill)
+                    .height(Length::Fixed(250.0))
+                    .align_x(Horizontal::Center)
+                    .align_y(Vertical::Center))
+            }
+            "svg" => {
+                let svg_handle = svg::Handle::from_path(&entry.path);
+                let svg_widget = svg(svg_handle)
+                    .width(Length::Fixed(250.0))
+                    .height(Length::Fixed(250.0));
+                Element::from(container(svg_widget)
+                    .width(Length::Fill)
+                    .height(Length::Fixed(250.0))
+                    .align_x(Horizontal::Center)
+                    .align_y(Vertical::Center))
+            }
+            // Code & Text Files
+            "rs" | "toml" | "json" | "txt" | "md" | "css" | "js" | "html" | "sh" | "py" | "c" | "cpp" | "h" | "go" | "yaml" | "yml" | "ini" | "conf" => {
+                let content = std::fs::read_to_string(&entry.path)
+                    .map(|s| {
+                        s.lines()
+                            .take(25)
+                            .collect::<Vec<&str>>()
+                            .join("\n")
+                    })
+                    .unwrap_or_else(|_| {
+                        if lang == "ES" { "No se puede leer el archivo" } else { "Cannot read file contents" }.to_string()
+                    });
+
+                let text_box = container(
+                    scrollable(
+                        text(content)
+                            .size(11)
+                            .font(Font::MONOSPACE)
+                            .color(palette.text)
+                    )
+                    .height(Length::Fixed(250.0))
+                )
+                .padding(12)
+                .width(Length::Fill)
+                .style(|theme: &iced::Theme| container::Style {
+                    background: Some(iced::Background::Color(Color { a: 0.04, ..theme.palette().text })),
+                    border: iced::Border {
+                        radius: 8.0.into(),
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                });
+
+                Element::from(text_box)
+            }
+            // Unsupported binary files
+            _ => {
+                let icon_widget = if let Some(path) = &entry.icon_path {
+                    if path.ends_with(".svg") {
+                        let svg_handle = svg::Handle::from_path(path);
+                        Element::from(svg(svg_handle).width(96).height(96))
+                    } else {
+                        Element::from(image(path).width(96).height(96))
+                    }
+                } else {
+                    Element::from(text("📄").size(64))
+                };
+
+                let extension_tag = container(
+                    text(ext.to_uppercase())
+                        .size(11)
+                        .font(iced::Font {
+                            weight: iced::font::Weight::Bold,
+                            ..Default::default()
+                        })
+                        .color(palette.primary)
+                )
+                .padding(Padding::from([4, 10]))
+                .style(|theme: &iced::Theme| container::Style {
+                    background: Some(iced::Background::Color(Color { a: 0.1, ..theme.palette().primary })),
+                    border: iced::Border {
+                        radius: 6.0.into(),
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                });
+
+                let info_box = Column::new()
+                    .spacing(12)
+                    .align_x(iced::Alignment::Center)
+                    .push(icon_widget)
+                    .push(extension_tag);
+
+                Element::from(container(info_box)
+                    .height(Length::Fixed(250.0))
+                    .align_x(Horizontal::Center)
+                    .align_y(Vertical::Center))
+            }
+        }
+    };
+
+    layout = layout.push(preview_body);
+    layout = layout.push(Space::new().height(Length::Fixed(4.0)));
+
+    // Return tip
+    let tip = text(if lang == "ES" { "Presiona Espacio para volver" } else { "Press Space to return" })
+        .size(10)
+        .color(Color { a: 0.35, ..palette.text });
+    layout = layout.push(tip);
+
+    container(layout)
+        .width(Length::Fill)
+        .into()
+}
+
 // ---------------------------------------------------------------------------
 // Keyboard subscription
 // ---------------------------------------------------------------------------
@@ -1133,6 +1344,7 @@ fn subscription(state: &CastIt) -> iced::Subscription<Message> {
                         iced::keyboard::Key::Named(iced::keyboard::key::Named::ArrowDown) => Some(Message::ArrowDown),
                         iced::keyboard::Key::Named(iced::keyboard::key::Named::ArrowUp) => Some(Message::ArrowUp),
                         iced::keyboard::Key::Named(iced::keyboard::key::Named::ArrowRight) => Some(Message::ArrowRight),
+                        iced::keyboard::Key::Named(iced::keyboard::key::Named::Space) => Some(Message::TogglePreview),
                         iced::keyboard::Key::Named(iced::keyboard::key::Named::Delete) if modifiers.shift() => Some(Message::ClearQuery),
                         iced::keyboard::Key::Named(iced::keyboard::key::Named::Backspace) if modifiers.shift() => Some(Message::ClearQuery),
                         _ => None,
