@@ -19,18 +19,47 @@ pub fn result_row(
         .size(14)
         .color(if selected { palette.text } else { Color { a: 0.9, ..palette.text } });
 
-    let mut row_content = row![].spacing(12).align_y(iced::Alignment::Center);
-
-    if let Some(path) = &entry.icon_path {
+    let icon_element: Element<'static, Message> = if let Some(path) = &entry.icon_path {
         if path.ends_with(".svg") {
             let svg_handle = svg::Handle::from_path(path);
-            row_content = row_content.push(svg(svg_handle).width(28).height(28));
+            svg(svg_handle).width(28).height(28).into()
         } else {
-            row_content = row_content.push(image(path).width(28).height(28));
+            image(path).width(28).height(28).into()
         }
     } else {
-        row_content = row_content.push(Space::new().width(Length::Fixed(28.0)));
-    }
+        Space::new().width(Length::Fixed(28.0)).height(Length::Fixed(28.0)).into()
+    };
+
+    let styled_icon = container(icon_element)
+        .padding(3)
+        .style(move |theme: &iced::Theme| {
+            let pal = theme.palette();
+            if is_favorite {
+                container::Style {
+                    border: iced::Border {
+                        color: Color { r: 0.95, g: 0.75, b: 0.2, a: 0.8 }, // Gold
+                        width: 1.5,
+                        radius: 6.0.into(),
+                    },
+                    background: Some(iced::Background::Color(Color { r: 0.95, g: 0.75, b: 0.2, a: 0.1 })),
+                    ..Default::default()
+                }
+            } else if is_recent {
+                container::Style {
+                    border: iced::Border {
+                        color: Color { r: pal.primary.r, g: pal.primary.g, b: pal.primary.b, a: 0.5 }, // Soft primary
+                        width: 1.5,
+                        radius: 6.0.into(),
+                    },
+                    background: Some(iced::Background::Color(Color { r: pal.primary.r, g: pal.primary.g, b: pal.primary.b, a: 0.06 })),
+                    ..Default::default()
+                }
+            } else {
+                container::Style::default()
+            }
+        });
+
+    let mut row_content = row![styled_icon].spacing(12).align_y(iced::Alignment::Center);
 
     let mut details = Column::new().spacing(2);
     details = details.push(name_text);
@@ -43,13 +72,6 @@ pub fn result_row(
     }
 
     row_content = row_content.push(details);
-
-    if is_favorite {
-        row_content = row_content.push(text("⭐").size(14));
-    } else if is_recent {
-        row_content = row_content.push(text("🕒").size(14));
-    }
-
     row_content = row_content.push(Space::new().width(Length::Fill));
 
     if selected {
