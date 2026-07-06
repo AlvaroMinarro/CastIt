@@ -35,6 +35,10 @@ pub fn update(state: &mut CastIt, message: Message) -> Task<Message> {
         Message::ClipboardWriteFinished => {
             std::process::exit(0);
         }
+        Message::ModifiersChanged(mods) => {
+            state.modifiers = mods;
+            Task::none()
+        }
         Message::ClearQuery => {
             state.query.clear();
             state.selected_index = 0;
@@ -90,18 +94,24 @@ pub fn update(state: &mut CastIt, message: Message) -> Task<Message> {
                 Mode::CommandRunner => {
                     let cmd = state.query.strip_prefix('>').unwrap_or(&state.query).trim().to_string();
                     if !cmd.is_empty() {
-                        state.runner_state = RunnerState::Running { command: cmd.clone() };
-                        state.query = "> ".to_string(); // Reset input back to prompt
-                        let cmd_clone = cmd.clone();
-                        Task::perform(
-                            async move {
-                                runner::run_in_background(&cmd_clone)
-                            },
-                            move |res| Message::CommandFinished {
-                                command: cmd.clone(),
-                                result: res,
-                            },
-                        )
+                        if state.modifiers.control() {
+                            let term_override = state.config.terminal.as_deref();
+                            let _ = runner::run_in_terminal(&cmd, term_override);
+                            std::process::exit(0);
+                        } else {
+                            state.runner_state = RunnerState::Running { command: cmd.clone() };
+                            state.query = "> ".to_string(); // Reset input back to prompt
+                            let cmd_clone = cmd.clone();
+                            Task::perform(
+                                async move {
+                                    runner::run_in_background(&cmd_clone)
+                                },
+                                move |res| Message::CommandFinished {
+                                    command: cmd.clone(),
+                                    result: res,
+                                },
+                            )
+                        }
                     } else {
                         Task::none()
                     }

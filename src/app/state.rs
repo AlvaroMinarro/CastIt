@@ -75,6 +75,7 @@ pub struct CastIt {
     pub filtered_files: Vec<(FileEntry, u32)>, // (entry, score)
     pub preview_active: bool,
     pub calculator_result: Option<f64>,
+    pub modifiers: iced::keyboard::Modifiers,
 }
 
 impl CastIt {
@@ -96,6 +97,7 @@ impl CastIt {
                 filtered_files: Vec::new(),
                 preview_active: false,
                 calculator_result: None,
+                modifiers: iced::keyboard::Modifiers::default(),
             },
             iced::widget::operation::focus(Id::new("search-input")),
         )

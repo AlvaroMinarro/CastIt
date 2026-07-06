@@ -19,4 +19,5 @@ pub enum Message {
     ScrollPreviewUp,
     ScrollPreviewDown,
     ClipboardWriteFinished,
+    ModifiersChanged(iced::keyboard::Modifiers),
 }

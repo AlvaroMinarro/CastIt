@@ -10,6 +10,7 @@ pub fn subscription(state: &CastIt) -> Subscription<Message> {
     match state.mode {
         Mode::Settings => {
             iced::event::listen_with(|event, _status, _id| match event {
+                Event::Keyboard(keyboard::Event::ModifiersChanged(mods)) => Some(Message::ModifiersChanged(mods)),
                 Event::Keyboard(keyboard::Event::KeyPressed { key, modifiers, .. }) => {
                     match key {
                         keyboard::Key::Named(keyboard::key::Named::Escape) => Some(Message::Escape),
@@ -28,6 +29,7 @@ pub fn subscription(state: &CastIt) -> Subscription<Message> {
         }
         Mode::FileBrowser => {
             iced::event::listen_with(|event, _status, _id| match event {
+                Event::Keyboard(keyboard::Event::ModifiersChanged(mods)) => Some(Message::ModifiersChanged(mods)),
                 Event::Keyboard(keyboard::Event::KeyPressed { key, modifiers, .. }) => {
                     match key {
                         keyboard::Key::Named(keyboard::key::Named::Escape) => Some(Message::Escape),
@@ -59,6 +61,7 @@ pub fn subscription(state: &CastIt) -> Subscription<Message> {
         }
         _ => {
             iced::event::listen_with(|event, _status, _id| match event {
+                Event::Keyboard(keyboard::Event::ModifiersChanged(mods)) => Some(Message::ModifiersChanged(mods)),
                 Event::Keyboard(keyboard::Event::KeyPressed { key, modifiers, .. }) => {
                     match key {
                         keyboard::Key::Named(keyboard::key::Named::Escape) => Some(Message::Escape),
