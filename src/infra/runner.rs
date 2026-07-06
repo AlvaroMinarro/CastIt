@@ -1,4 +1,5 @@
 use std::env;
+use std::os::unix::process::CommandExt;
 use std::path::Path;
 use std::process::{Command, Stdio};
 
@@ -114,6 +115,7 @@ pub fn run_in_terminal(command_str: &str, preferred_terminal: Option<&str>) -> R
     );
 
     let mut cmd = Command::new(&term);
+    cmd.process_group(0);
     match term.as_str() {
         "wezterm" => {
             cmd.args(["start", "--", "sh", "-c", &shell_cmd]);

@@ -2,6 +2,7 @@ use iced::widget::Id;
 use iced::Task;
 use nucleo_matcher::pattern::{CaseMatching, Normalization, Pattern};
 use nucleo_matcher::{Config, Matcher, Utf32Str};
+use std::os::unix::process::CommandExt;
 use std::process::Command;
 
 use crate::config;
@@ -294,6 +295,7 @@ pub fn launch_selected(state: &CastIt) {
         if let Some((program, args)) = parts.split_first() {
             let _ = Command::new(program)
                 .args(args)
+                .process_group(0)
                 .stdin(std::process::Stdio::null())
                 .stdout(std::process::Stdio::null())
                 .stderr(std::process::Stdio::null())
