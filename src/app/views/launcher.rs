@@ -61,7 +61,7 @@ pub fn result_row(
 
     let mut row_content = row![styled_icon].spacing(12).align_y(iced::Alignment::Center);
 
-    let mut details = Column::new().spacing(2);
+    let mut details = Column::new().spacing(2).width(Length::Fill);
     details = details.push(name_text);
 
     if let Some(desc) = &entry.description {
@@ -72,7 +72,6 @@ pub fn result_row(
     }
 
     row_content = row_content.push(details);
-    row_content = row_content.push(Space::new().width(Length::Fill));
 
     if selected {
         let tag = container(text(translate("launch_tag", lang)).size(10).color(palette.primary))
