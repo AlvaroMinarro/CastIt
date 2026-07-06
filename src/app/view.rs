@@ -136,7 +136,17 @@ pub fn view(state: &CastIt) -> Element<'_, Message> {
 
                     for (i, (entry, _score)) in state.filtered_entries.iter().enumerate() {
                         let is_selected = i == state.selected_index;
-                        results = results.push(super::views::launcher::result_row(entry, is_selected, i, palette, lang));
+                        let is_favorite = state.config.favorites.as_ref().map_or(false, |f| f.contains(&entry.exec));
+                        let is_recent = state.config.history.as_ref().map_or(false, |h| h.contains_key(&entry.exec));
+                        results = results.push(super::views::launcher::result_row(
+                            entry,
+                            is_selected,
+                            is_favorite,
+                            is_recent,
+                            i,
+                            palette,
+                            lang,
+                        ));
                     }
 
                     scrollable(results).height(Length::Shrink).id(Id::new("scroll-list")).into()

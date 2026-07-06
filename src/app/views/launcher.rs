@@ -9,6 +9,8 @@ use crate::app::view::translate;
 pub fn result_row(
     entry: &AppEntry,
     selected: bool,
+    is_favorite: bool,
+    is_recent: bool,
     _index: usize,
     palette: iced::theme::Palette,
     lang: &str,
@@ -41,6 +43,13 @@ pub fn result_row(
     }
 
     row_content = row_content.push(details);
+
+    if is_favorite {
+        row_content = row_content.push(text("⭐").size(14));
+    } else if is_recent {
+        row_content = row_content.push(text("🕒").size(14));
+    }
+
     row_content = row_content.push(Space::new().width(Length::Fill));
 
     if selected {

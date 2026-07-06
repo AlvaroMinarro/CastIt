@@ -70,6 +70,7 @@ pub fn subscription(state: &CastIt) -> Subscription<Message> {
                         keyboard::Key::Named(keyboard::key::Named::Delete) if modifiers.shift() => Some(Message::ClearQuery),
                         keyboard::Key::Named(keyboard::key::Named::Backspace) if modifiers.shift() => Some(Message::ClearQuery),
                         keyboard::Key::Named(keyboard::key::Named::Enter) if modifiers.control() => Some(Message::SubmitInTerminal),
+                        keyboard::Key::Character(ref c) if c.to_lowercase() == "d" && modifiers.control() => Some(Message::ToggleFavorite),
                         _ => None,
                     }
                 }

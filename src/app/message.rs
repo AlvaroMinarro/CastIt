@@ -20,4 +20,6 @@ pub enum Message {
     ScrollPreviewDown,
     ClipboardWriteFinished,
     ModifiersChanged(iced::keyboard::Modifiers),
+    ToggleFavorite,
+    FileSearchResults { query: String, results: Vec<super::state::FileEntry> },
 }

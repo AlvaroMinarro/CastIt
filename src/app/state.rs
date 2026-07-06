@@ -249,6 +249,54 @@ pub fn update_filtered_entries(state: &mut CastIt) {
     state.filtered_entries.clear();
 
     if state.query.is_empty() {
+        let mut added_execs = std::collections::HashSet::new();
+
+        if let Some(ref favs) = state.config.favorites {
+            for fav_exec in favs {
+                if !added_execs.contains(fav_exec) {
+                    if let Some(entry) = state.all_entries.iter().find(|e| &e.exec == fav_exec) {
+                        state.filtered_entries.push((entry.clone(), 2000));
+                        added_execs.insert(fav_exec.clone());
+                    }
+                }
+            }
+        }
+
+        if let Some(ref hist) = state.config.history {
+            let mut hist_entries: Vec<(&String, &usize)> = hist.iter().collect();
+            hist_entries.sort_by(|a, b| b.1.cmp(a.1));
+            let top_5_hist: Vec<&String> = hist_entries.into_iter().take(5).map(|(exec, _)| exec).collect();
+
+            for hist_exec in top_5_hist {
+                if !added_execs.contains(hist_exec) {
+                    if let Some(entry) = state.all_entries.iter().find(|e| &e.exec == hist_exec) {
+                        state.filtered_entries.push((entry.clone(), 1000));
+                        added_execs.insert(hist_exec.clone());
+                    }
+                }
+            }
+        }
+
+        if state.filtered_entries.is_empty() {
+            for entry in state.all_entries.iter().take(8) {
+                state.filtered_entries.push((entry.clone(), 0));
+            }
+        }
+
+        // Lazily resolve icon paths ONLY for the visible results
+        for (entry, _) in &mut state.filtered_entries {
+            if entry.icon_path.is_none() {
+                if let Some(ref name) = entry.icon {
+                    if name.starts_with('/') {
+                        entry.icon_path = Some(name.clone());
+                    } else if let Some(result) = linicon::lookup_icon(name).with_size(64).next() {
+                        if let Ok(icon_info) = result {
+                            entry.icon_path = Some(icon_info.path.to_string_lossy().to_string());
+                        }
+                    }
+                }
+            }
+        }
         return;
     }
 
@@ -290,6 +338,12 @@ pub fn update_filtered_entries(state: &mut CastIt) {
 
 pub fn launch_selected(state: &CastIt) {
     if let Some((entry, _)) = state.filtered_entries.get(state.selected_index) {
+        let mut config = state.config.clone();
+        let history_map = config.history.get_or_insert_with(std::collections::HashMap::new);
+        let count = history_map.entry(entry.exec.clone()).or_insert(0);
+        *count += 1;
+        config.save();
+
         // Split the exec command and spawn it detached
         let parts: Vec<&str> = entry.exec.split_whitespace().collect();
         if let Some((program, args)) = parts.split_first() {

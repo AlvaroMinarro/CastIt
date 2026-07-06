@@ -11,6 +11,8 @@ pub struct Config {
     pub theme: Option<String>,
     pub language: Option<String>,
     pub browser: Option<String>,
+    pub favorites: Option<Vec<String>>,
+    pub history: Option<std::collections::HashMap<String, usize>>,
 }
 
 impl Default for Config {
@@ -23,6 +25,8 @@ impl Default for Config {
             theme: Some("TokyoNight".to_string()),
             language: Some("EN".to_string()),
             browser: None,
+            favorites: None,
+            history: None,
         }
     }
 }

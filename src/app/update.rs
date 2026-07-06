@@ -54,7 +54,24 @@ pub fn update(state: &mut CastIt, message: Message) -> Task<Message> {
             state.query = value;
             state.selected_index = 0;
             state.preview_active = false;
-            if state.query.starts_with("??") {
+            if state.query.starts_with("f ") {
+                state.mode = Mode::FileBrowser;
+                let term = state.query.strip_prefix("f ").unwrap_or("").trim().to_string();
+                if !term.is_empty() {
+                    return Task::perform(
+                        async move {
+                            (term.clone(), crate::infra::runner::global_file_search(term))
+                        },
+                        |(q, res)| Message::FileSearchResults {
+                            query: q,
+                            results: res.unwrap_or_default(),
+                        },
+                    );
+                } else {
+                    state.filtered_files.clear();
+                    return Task::none();
+                }
+            } else if state.query.starts_with("??") {
                 state.mode = Mode::Help;
             } else if state.query.starts_with('?') {
                 state.mode = Mode::WebSearch;
@@ -412,6 +429,40 @@ pub fn update(state: &mut CastIt, message: Message) -> Task<Message> {
         }
         Message::WindowFocused => {
             iced::widget::operation::focus(Id::new("search-input"))
+        }
+        Message::ToggleFavorite => {
+            if state.mode == Mode::Launcher {
+                if let Some((entry, _)) = state.filtered_entries.get(state.selected_index) {
+                    let exec = entry.exec.clone();
+                    let favorites = state.config.favorites.get_or_insert_with(Vec::new);
+                    if let Some(pos) = favorites.iter().position(|f| f == &exec) {
+                        favorites.remove(pos);
+                    } else {
+                        favorites.push(exec);
+                    }
+                    state.config.save();
+                    update_filtered_entries(state);
+                }
+            }
+            Task::none()
+        }
+        Message::FileSearchResults { query, mut results } => {
+            if state.query == format!("f {}", query) {
+                for entry in &mut results {
+                    if let Some(ref icon_name) = entry.icon_path {
+                        if !icon_name.starts_with('/') {
+                            if let Some(res) = linicon::lookup_icon(icon_name).with_size(64).next() {
+                                if let Ok(icon_info) = res {
+                                    entry.icon_path = Some(icon_info.path.to_string_lossy().to_string());
+                                }
+                            }
+                        }
+                    }
+                }
+                state.filtered_files = results.into_iter().map(|e| (e, 100)).collect();
+                state.selected_index = 0;
+            }
+            Task::none()
         }
         _ => Task::none(),
     }

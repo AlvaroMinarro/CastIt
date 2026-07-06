@@ -134,3 +134,70 @@ pub fn run_in_terminal(command_str: &str, preferred_terminal: Option<&str>) -> R
 
     Ok(())
 }
+
+pub fn global_file_search(term: String) -> Result<Vec<crate::app::state::FileEntry>, String> {
+    let fd_exists = if let Ok(path_var) = env::var("PATH") {
+        path_var.split(':').any(|p| Path::new(p).join("fd").exists())
+    } else {
+        false
+    };
+
+    let output = if fd_exists {
+        Command::new("sh")
+            .arg("-c")
+            .arg("fd --type f --max-results 30 \"$1\" ~")
+            .arg("--")
+            .arg(&term)
+            .output()
+            .map_err(|e| format!("Failed to execute fd: {}", e))?
+    } else {
+        Command::new("sh")
+            .arg("-c")
+            .arg("find ~/ -maxdepth 5 -type f -iname \"*$1*\" | head -n 30")
+            .arg("--")
+            .arg(&term)
+            .output()
+            .map_err(|e| format!("Failed to execute find: {}", e))?
+    };
+
+    let stdout_str = String::from_utf8_lossy(&output.stdout);
+    let mut results = Vec::new();
+
+    for line in stdout_str.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+
+        let path = Path::new(trimmed);
+        let name = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or(trimmed)
+            .to_string();
+
+        let ext = path
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("")
+            .to_lowercase();
+
+        let icon_name = match ext.as_str() {
+            "pdf" => "document-pdf",
+            "jpg" | "jpeg" | "png" | "gif" | "svg" | "bmp" | "webp" => "image-x-generic",
+            "zip" | "tar" | "gz" | "xz" | "bz2" | "7z" | "rar" | "deb" | "rpm" => "package-x-generic",
+            "mp3" | "ogg" | "wav" | "flac" | "m4a" | "wma" => "audio-x-generic",
+            "mp4" | "mkv" | "avi" | "mov" | "wmv" | "flv" | "webm" => "video-x-generic",
+            _ => "text-x-generic",
+        };
+
+        results.push(crate::app::state::FileEntry {
+            name,
+            path: trimmed.to_string(),
+            is_dir: false,
+            icon_path: Some(icon_name.to_string()),
+        });
+    }
+
+    Ok(results)
+}
