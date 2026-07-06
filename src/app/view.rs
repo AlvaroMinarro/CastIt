@@ -83,7 +83,16 @@ pub fn view(state: &CastIt) -> Element<'_, Message> {
 
     let logo_bytes = include_bytes!("../../assets/logo.svg");
     let logo_handle = svg::Handle::from_memory(logo_bytes.to_vec());
-    let logo_element = container(svg(logo_handle).width(24).height(24))
+    let logo_element = container(
+        svg(logo_handle)
+            .width(28)
+            .height(28)
+            .style(move |theme: &iced::Theme, _status| {
+                svg::Style {
+                    color: Some(theme.palette().text),
+                }
+            })
+    )
         .padding(Padding { top: 0.0, right: 0.0, bottom: 0.0, left: 20.0 });
 
     let input = text_input(translate("search_placeholder", lang), &state.query)
