@@ -7,13 +7,17 @@
 ## Features
 
 - 🚀 **Application Launcher**: Fuzzy search desktop application names and descriptions instantly using the state-of-the-art `nucleo-matcher` fuzzy engine.
-- 🐚 **Terminal Command Runner**: Type `>` followed by a command to execute it. Run commands in the background with real-time output preview, or run them in your preferred terminal emulator with `Ctrl+Enter`.
-- 📁 **File & Directory Browser**: Type `/` or `~` to explore your system. Press `Arrow Right` to navigate into folders, `Shift+Arrow Left` to backtrack, and `Enter` to open files or directories in your default file manager.
+- 📋 **Quick Launch Dashboard**: When the search bar is empty, CastIt becomes a dashboard showing your bookmarked **Favorite Apps** (highlighted in gold) followed by your **top 5 most used apps** (highlighted in blue).
+- 🐚 **Terminal Command Runner**: Type `>` followed by a command to execute it. Run commands in the background with real-time output preview, or run them in your preferred terminal emulator with `Ctrl+Enter` (spawns in detached process groups).
+- 🔍 **Global File Search**: Type `f ` followed by a search query (e.g. `f resume`) to recursively search files and documents in your home directory (`~/`) using `fd` (or standard `find` fallback). Automatically displays filetypes with custom MIME icons.
+- 📁 **File & Directory Browser**: Type `/` or `~` to explore your system directory tree. Press `Arrow Right` to navigate into folders, `Shift+Arrow Left` to backtrack, and `Enter` to open files or directories in your default file manager.
 - 👁️ **macOS Quick Look Document Preview**: Press `Ctrl+Space` on any selected file to show a rich preview pane:
   - **Images** (`.png`, `.jpg`, `.webp`, `.svg`, etc.) are rendered directly inside the interface.
   - **Code & Text files** (supporting 30+ dev extensions: `.rs`, `.java`, `.kt`, `.py`, `.js`, etc.) render up to 300 lines of monospace code. Use `Shift+Arrow Up/Down` to scroll the file's preview context.
   - **Other files** display system-level file descriptors and metadata cards.
-- ⚙️ **Real-Time Settings Panel**: Type `..` to toggle settings. Customize theme, terminal emulator, background opacity, window size, and language (English / Spanish) reactively.
+- 🌐 **Web Search Integration**: Type `?` followed by a search query (e.g. `? rust docs`) to execute search queries directly in your preferred web browser.
+- 🧮 **Visual Calculator**: Type mathematical expressions (e.g. `10 * 9 - 8`) to automatically calculate results and preview them in real-time. Press `Enter` to copy results to the system clipboard.
+- ⚙️ **Real-Time Settings Panel**: Type `..` to toggle settings. Customize theme, preferred terminal emulator, preferred web browser, window opacity, dimensions, and language (English / Spanish) reactively with auto-scan PATH discovery.
 - 📋 **Shortcuts Cheatsheet**: Type `??` to view a balanced, two-column interactive cheatsheet of all keyboard shortcuts.
 
 ---
@@ -56,6 +60,7 @@ Ensure you have Wayland libraries installed on your distribution:
 |:---|:---|
 | `↑ / ↓` | Navigate through search results (with auto-scroll) |
 | `Enter` | Launch selected application |
+| `Ctrl + D` | Toggle selected application as favorite (Dashboard) |
 
 ### Command Runner Mode (`>`)
 | Shortcut | Action |
@@ -63,14 +68,21 @@ Ensure you have Wayland libraries installed on your distribution:
 | `Enter` | Run command in background and preview output (`stdout`/`stderr`) |
 | `Ctrl + Enter` | Run command in external preferred terminal emulator |
 
-### File Browser Mode (`/`, `~`)
+### File Browser / Global File Search Mode (`/`, `~`, `f `)
 | Shortcut | Action |
 |:---|:---|
+| `f <query>` | Search files recursively in home directory (`~/`) |
 | `↑ / ↓` | Navigate file list |
-| `→` | Autocomplete / Navigate into selected folder |
-| `Shift + ←` | Go back to parent folder |
+| `→` | Autocomplete / Navigate into selected folder (only in path browsing) |
+| `Shift + ←` | Go back to parent folder (only in path browsing) |
 | `Enter` | Open file (or native folder manager for directory) and close launcher |
 | `Ctrl + Space` | Open/Close file preview (Quick Look) |
+
+### Web Search & Calculator Mode (`?`, math expressions)
+| Shortcut | Action |
+|:---|:---|
+| `Enter` (Web Search) | Open search query in preferred browser |
+| `Enter` (Calculator) | Copy calculation result to system clipboard and close |
 
 ### Quick Look File Preview (While Open)
 | Shortcut | Action |
@@ -83,7 +95,7 @@ Ensure you have Wayland libraries installed on your distribution:
 | Shortcut | Action |
 |:---|:---|
 | `↑ / ↓` | Navigate settings items |
-| `← / →` | Change selected value (Theme, Preferred Terminal, Opacity, Width, Height, Language) |
+| `← / →` | Change selected value (Theme, Preferred Terminal, Opacity, Width, Height, Language, Preferred Browser) |
 
 ---
 

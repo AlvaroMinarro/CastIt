@@ -30,10 +30,14 @@ pub fn help_view<'a>(
             ("Launcher / Apps", vec![
                 ("↑ / ↓", "Navegar resultados"),
                 ("Enter", "Lanzar aplicación seleccionada"),
+                ("Ctrl + D", "Añadir/quitar app favorita (Dashboard)"),
             ], true),
             ("Comandos ('>')", vec![
                 ("Enter", "Ejecutar comando en segundo plano"),
                 ("Ctrl + Enter", "Ejecutar comando en terminal externa"),
+            ], true),
+            ("Calculadora", vec![
+                ("Enter", "Copiar resultado al portapapeles"),
             ], true),
             ("Archivos ('/', '~')", vec![
                 ("↑ / ↓", "Navegar archivos / carpetas"),
@@ -41,6 +45,12 @@ pub fn help_view<'a>(
                 ("Shift + ←", "Subir al directorio superior"),
                 ("Enter", "Abrir archivo / Carpeta nativa"),
                 ("Ctrl + Espacio", "Previsualizar archivo (Quick Look)"),
+            ], false),
+            ("Búsqueda Global ('f ')", vec![
+                ("f <archivo>", "Buscar archivos recursivamente en ~"),
+            ], false),
+            ("Buscador Web ('?')", vec![
+                ("? <texto>", "Buscar consulta en Google"),
             ], false),
             ("Previsualización de Archivo", vec![
                 ("Shift + ↑ / ↓", "Deslizar (scroll) contenido de archivo"),
@@ -59,10 +69,14 @@ pub fn help_view<'a>(
             ("Launcher / Apps", vec![
                 ("↑ / ↓", "Navigate launcher results"),
                 ("Enter", "Launch selected application"),
+                ("Ctrl + D", "Toggle app favorite (Dashboard)"),
             ], true),
             ("Commands ('>')", vec![
                 ("Enter", "Run command in background"),
                 ("Ctrl + Enter", "Run command in external terminal"),
+            ], true),
+            ("Calculator", vec![
+                ("Enter", "Copy result to clipboard"),
             ], true),
             ("Files ('/', '~')", vec![
                 ("↑ / ↓", "Navigate file list"),
@@ -70,6 +84,12 @@ pub fn help_view<'a>(
                 ("Shift + ←", "Navigate to parent folder"),
                 ("Enter", "Open file / Native folder manager"),
                 ("Ctrl + Space", "Preview file (Quick Look)"),
+            ], false),
+            ("Global Search ('f ')", vec![
+                ("f <file>", "Search files recursively in ~"),
+            ], false),
+            ("Web Search ('?')", vec![
+                ("? <query>", "Search query on Google"),
             ], false),
             ("File Preview", vec![
                 ("Shift + ↑ / ↓", "Scroll through file content preview"),
