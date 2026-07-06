@@ -1,4 +1,4 @@
-use iced::widget::{container, image, row, scrollable, text, text_input, Column, Id};
+use iced::widget::{container, row, scrollable, svg, text, text_input, Column, Id};
 use iced::{Color, Element, Length, Padding};
 
 use super::message::Message;
@@ -81,9 +81,9 @@ pub fn view(state: &CastIt) -> Element<'_, Message> {
     let palette = active_theme.palette();
     let opacity = state.config.opacity.unwrap_or(0.92);
 
-    let logo_bytes = include_bytes!("../../assets/logo.png");
-    let logo_handle = image::Handle::from_bytes(logo_bytes.to_vec());
-    let logo_element = container(image(logo_handle).width(24).height(24))
+    let logo_bytes = include_bytes!("../../assets/logo.svg");
+    let logo_handle = svg::Handle::from_memory(logo_bytes.to_vec());
+    let logo_element = container(svg(logo_handle).width(24).height(24))
         .padding(Padding { top: 0.0, right: 0.0, bottom: 0.0, left: 20.0 });
 
     let input = text_input(translate("search_placeholder", lang), &state.query)
