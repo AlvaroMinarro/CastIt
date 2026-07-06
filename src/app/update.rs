@@ -139,6 +139,7 @@ pub fn update(state: &mut CastIt, message: Message) -> Task<Message> {
                 }
                 Mode::Settings => {
                     state.selected_setting = (state.selected_setting + 1).min(5);
+                    return iced::widget::operation::move_cursor_to_end(Id::new("search-input"));
                 }
                 Mode::Help => {
                     return iced::widget::operation::scroll_by(
@@ -176,6 +177,7 @@ pub fn update(state: &mut CastIt, message: Message) -> Task<Message> {
                 }
                 Mode::Settings => {
                     state.selected_setting = state.selected_setting.saturating_sub(1);
+                    return iced::widget::operation::move_cursor_to_end(Id::new("search-input"));
                 }
                 Mode::Help => {
                     return iced::widget::operation::scroll_by(
@@ -218,6 +220,7 @@ pub fn update(state: &mut CastIt, message: Message) -> Task<Message> {
                     }
                     _ => {}
                 }
+                return iced::widget::operation::move_cursor_to_end(Id::new("search-input"));
             } else if state.mode == Mode::FileBrowser {
                 let mut path_str = state.query.clone();
                 if path_str.ends_with('/') {
@@ -270,6 +273,7 @@ pub fn update(state: &mut CastIt, message: Message) -> Task<Message> {
                         }
                         _ => {}
                     }
+                    return iced::widget::operation::move_cursor_to_end(Id::new("search-input"));
                 }
                 Mode::FileBrowser => {
                     if let Some((entry, _)) = state.filtered_files.get(state.selected_index) {
