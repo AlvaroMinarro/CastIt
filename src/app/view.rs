@@ -85,8 +85,8 @@ pub fn view(state: &CastIt) -> Element<'_, Message> {
     let logo_handle = svg::Handle::from_memory(logo_bytes.to_vec());
     let logo_element = container(
         svg(logo_handle)
-            .width(28)
-            .height(28)
+            .width(32)
+            .height(32)
             .style(move |theme: &iced::Theme, _status| {
                 svg::Style {
                     color: Some(theme.palette().text),
