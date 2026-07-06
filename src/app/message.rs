@@ -18,4 +18,5 @@ pub enum Message {
     TogglePreview,
     ScrollPreviewUp,
     ScrollPreviewDown,
+    ClipboardWriteFinished,
 }

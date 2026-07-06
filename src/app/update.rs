@@ -9,8 +9,32 @@ use super::state::{
     update_filtered_entries, update_filtered_files,
 };
 
+fn is_math_expression(query: &str) -> bool {
+    let trimmed = query.trim();
+    if trimmed.is_empty() {
+        return false;
+    }
+    let has_operator = trimmed.contains('+')
+        || trimmed.contains('-')
+        || trimmed.contains('*')
+        || trimmed.contains('/')
+        || trimmed.contains('^')
+        || trimmed.contains('%')
+        || trimmed.contains("sin")
+        || trimmed.contains("cos")
+        || trimmed.contains("tan")
+        || trimmed.contains("sqrt")
+        || trimmed.contains("pi")
+        || trimmed.contains("e");
+
+    has_operator && trimmed.chars().any(|c| c.is_ascii_digit() || c == '(' || c == ')')
+}
+
 pub fn update(state: &mut CastIt, message: Message) -> Task<Message> {
     match message {
+        Message::ClipboardWriteFinished => {
+            std::process::exit(0);
+        }
         Message::ClearQuery => {
             state.query.clear();
             state.selected_index = 0;
@@ -19,6 +43,7 @@ pub fn update(state: &mut CastIt, message: Message) -> Task<Message> {
             state.preview_active = false;
             state.filtered_entries.clear();
             state.filtered_files.clear();
+            state.calculator_result = None;
             Task::none()
         }
         Message::QueryChanged(value) => {
@@ -27,6 +52,8 @@ pub fn update(state: &mut CastIt, message: Message) -> Task<Message> {
             state.preview_active = false;
             if state.query.starts_with("??") {
                 state.mode = Mode::Help;
+            } else if state.query.starts_with('?') {
+                state.mode = Mode::WebSearch;
             } else if state.query.starts_with("..") {
                 state.mode = Mode::Settings;
             } else if state.query.starts_with('>') {
@@ -37,6 +64,16 @@ pub fn update(state: &mut CastIt, message: Message) -> Task<Message> {
             } else if state.query.starts_with('/') || state.query.starts_with('~') {
                 state.mode = Mode::FileBrowser;
                 update_filtered_files(state);
+            } else if is_math_expression(&state.query) {
+                if let Ok(val) = meval::eval_str(&state.query) {
+                    state.mode = Mode::Calculator;
+                    state.calculator_result = Some(val);
+                } else {
+                    state.calculator_result = None;
+                    state.mode = Mode::Launcher;
+                    state.runner_state = RunnerState::Idle;
+                    update_filtered_entries(state);
+                }
             } else {
                 state.mode = Mode::Launcher;
                 state.runner_state = RunnerState::Idle;
@@ -79,6 +116,37 @@ pub fn update(state: &mut CastIt, message: Message) -> Task<Message> {
                             .stderr(std::process::Stdio::null())
                             .spawn();
                         std::process::exit(0);
+                    }
+                    Task::none()
+                }
+                Mode::WebSearch => {
+                    let search_term = state.query.strip_prefix('?').unwrap_or(&state.query).trim();
+                    let escaped = urlencoding::encode(search_term);
+                    let url = format!("https://www.google.com/search?q={}", escaped);
+                    
+                    let browser = state.config.browser.as_deref().unwrap_or("Auto");
+                    if browser == "Auto" {
+                        let _ = Command::new("xdg-open")
+                            .arg(&url)
+                            .stdin(std::process::Stdio::null())
+                            .stdout(std::process::Stdio::null())
+                            .stderr(std::process::Stdio::null())
+                            .spawn();
+                    } else {
+                        let _ = Command::new(browser)
+                            .arg(&url)
+                            .stdin(std::process::Stdio::null())
+                            .stdout(std::process::Stdio::null())
+                            .stderr(std::process::Stdio::null())
+                            .spawn();
+                    }
+                    std::process::exit(0);
+                }
+                Mode::Calculator => {
+                    if let Some(val) = state.calculator_result {
+                        let val_str = format!("{}", val);
+                        return iced::clipboard::write::<()>(val_str)
+                            .map(|_| Message::ClipboardWriteFinished);
                     }
                     Task::none()
                 }
@@ -138,7 +206,7 @@ pub fn update(state: &mut CastIt, message: Message) -> Task<Message> {
                     }
                 }
                 Mode::Settings => {
-                    state.selected_setting = (state.selected_setting + 1).min(5);
+                    state.selected_setting = (state.selected_setting + 1).min(6);
                     return iced::widget::operation::move_cursor_to_end(Id::new("search-input"));
                 }
                 Mode::Help => {
@@ -218,6 +286,9 @@ pub fn update(state: &mut CastIt, message: Message) -> Task<Message> {
                         state.config.language = Some(if lang == "EN" { "ES".to_string() } else { "EN".to_string() });
                         state.config.save();
                     }
+                    6 => { // Browser
+                        super::state::cycle_browser(state, -1);
+                    }
                     _ => {}
                 }
                 return iced::widget::operation::move_cursor_to_end(Id::new("search-input"));
@@ -270,6 +341,9 @@ pub fn update(state: &mut CastIt, message: Message) -> Task<Message> {
                             let lang = state.config.language.as_deref().unwrap_or("EN");
                             state.config.language = Some(if lang == "EN" { "ES".to_string() } else { "EN".to_string() });
                             state.config.save();
+                        }
+                        6 => { // Browser
+                            super::state::cycle_browser(state, 1);
                         }
                         _ => {}
                     }

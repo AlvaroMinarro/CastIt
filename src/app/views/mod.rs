@@ -3,3 +3,5 @@ pub mod file_browser;
 pub mod help;
 pub mod launcher;
 pub mod settings;
+pub mod calculator;
+pub mod web_search;

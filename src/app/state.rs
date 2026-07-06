@@ -41,6 +41,8 @@ pub enum Mode {
     FileBrowser,
     Settings,
     Help,
+    WebSearch,
+    Calculator,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -67,11 +69,12 @@ pub struct CastIt {
     pub mode: Mode,
     pub runner_state: RunnerState,
     pub config: config::Config,
-    pub selected_setting: usize, // 0: Theme, 1: Terminal, 2: Opacity, 3: Width, 4: Height, 5: Language
+    pub selected_setting: usize, // 0: Theme, 1: Terminal, 2: Opacity, 3: Width, 4: Height, 5: Language, 6: Browser
     pub current_parent_dir: String,
     pub directory_entries: Vec<FileEntry>,
     pub filtered_files: Vec<(FileEntry, u32)>, // (entry, score)
     pub preview_active: bool,
+    pub calculator_result: Option<f64>,
 }
 
 impl CastIt {
@@ -92,6 +95,7 @@ impl CastIt {
                 directory_entries: Vec::new(),
                 filtered_files: Vec::new(),
                 preview_active: false,
+                calculator_result: None,
             },
             iced::widget::operation::focus(Id::new("search-input")),
         )
@@ -300,4 +304,27 @@ pub fn launch_selected(state: &CastIt) {
         }
         std::process::exit(0);
     }
+}
+
+pub fn cycle_browser(state: &mut CastIt, direction: i32) {
+    let browsers = [
+        "Auto",
+        "firefox",
+        "google-chrome",
+        "brave",
+        "chromium",
+    ];
+    let current = state.config.browser.as_deref().unwrap_or("Auto");
+    let current_idx = browsers.iter().position(|&b| b == current).unwrap_or(0);
+    let new_idx = if direction > 0 {
+        (current_idx + 1) % browsers.len()
+    } else {
+        (current_idx + browsers.len() - 1) % browsers.len()
+    };
+    state.config.browser = if browsers[new_idx] == "Auto" {
+        None
+    } else {
+        Some(browsers[new_idx].to_string())
+    };
+    state.config.save();
 }

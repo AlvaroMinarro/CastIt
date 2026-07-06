@@ -23,6 +23,7 @@ pub fn settings_view<'a>(
     
     let config_lang = state.config.language.as_deref().unwrap_or("EN");
     let lang_display = if config_lang == "ES" { "Español (ES)" } else { "English (EN)" };
+    let active_browser = state.config.browser.as_deref().unwrap_or("Auto");
 
     settings_list = settings_list.push(settings_row(translate("setting_theme", lang), active_theme, state.selected_setting == 0, palette));
     settings_list = settings_list.push(settings_row(translate("setting_terminal", lang), active_term, state.selected_setting == 1, palette));
@@ -30,6 +31,7 @@ pub fn settings_view<'a>(
     settings_list = settings_list.push(settings_row(translate("setting_width", lang), &width_val, state.selected_setting == 3, palette));
     settings_list = settings_list.push(settings_row(translate("setting_height", lang), &height_val, state.selected_setting == 4, palette));
     settings_list = settings_list.push(settings_row(translate("setting_language", lang), lang_display, state.selected_setting == 5, palette));
+    settings_list = settings_list.push(settings_row(translate("setting_browser", lang), active_browser, state.selected_setting == 6, palette));
 
     let info_text = text(translate("info_tip", lang))
         .size(11)

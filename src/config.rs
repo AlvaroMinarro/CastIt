@@ -10,6 +10,7 @@ pub struct Config {
     pub height: Option<u32>,
     pub theme: Option<String>,
     pub language: Option<String>,
+    pub browser: Option<String>,
 }
 
 impl Default for Config {
@@ -21,6 +22,7 @@ impl Default for Config {
             height: Some(500),
             theme: Some("TokyoNight".to_string()),
             language: Some("EN".to_string()),
+            browser: None,
         }
     }
 }

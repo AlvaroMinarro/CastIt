@@ -21,6 +21,7 @@ pub fn translate<'a>(key: &'a str, lang: &str) -> &'a str {
             "setting_width" => "Ancho de Ventana",
             "setting_height" => "Alto de Ventana",
             "setting_language" => "Idioma",
+            "setting_browser" => "Navegador Web Preferido",
             "launch_tag" => "⏎ Lanzar",
             _ => key,
         },
@@ -39,6 +40,7 @@ pub fn translate<'a>(key: &'a str, lang: &str) -> &'a str {
             "setting_width" => "Window Width",
             "setting_height" => "Window Height",
             "setting_language" => "Language",
+            "setting_browser" => "Preferred Web Browser",
             "launch_tag" => "⏎ Launch",
             _ => key,
         },
@@ -155,8 +157,8 @@ pub fn view(state: &CastIt) -> Element<'_, Message> {
                     } else {
                         container(
                             text(translate("no_files", lang))
-                                .size(14)
-                                .color(Color { a: 0.5, ..palette.text }),
+                               .size(14)
+                               .color(Color { a: 0.5, ..palette.text }),
                         )
                         .padding(Padding { top: 16.0, right: 20.0, bottom: 16.0, left: 20.0 })
                         .into()
@@ -185,6 +187,8 @@ pub fn view(state: &CastIt) -> Element<'_, Message> {
             Mode::CommandRunner => super::views::command_runner::command_runner_view(state, palette, lang),
             Mode::Settings => super::views::settings::settings_view(state, palette, lang),
             Mode::Help => super::views::help::help_view(palette, lang),
+            Mode::WebSearch => super::views::web_search::web_search_view(state, palette, lang),
+            Mode::Calculator => super::views::calculator::calculator_view(state, palette, lang),
         };
 
         let results_card = container(card_content)
