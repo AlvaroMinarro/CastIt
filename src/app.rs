@@ -105,6 +105,7 @@ enum Mode {
     CommandRunner,
     FileBrowser,
     Settings,
+    Help,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -174,6 +175,8 @@ enum Message {
     WindowFocused,
     ClearQuery,
     TogglePreview,
+    ScrollPreviewUp,
+    ScrollPreviewDown,
 }
 
 // ---------------------------------------------------------------------------
@@ -228,7 +231,9 @@ fn update(state: &mut CastIt, message: Message) -> Task<Message> {
             state.query = value;
             state.selected_index = 0;
             state.preview_active = false;
-            if state.query.starts_with("..") {
+            if state.query.starts_with("??") {
+                state.mode = Mode::Help;
+            } else if state.query.starts_with("..") {
                 state.mode = Mode::Settings;
             } else if state.query.starts_with('>') {
                 state.mode = Mode::CommandRunner;
@@ -284,6 +289,7 @@ fn update(state: &mut CastIt, message: Message) -> Task<Message> {
                     Task::none()
                 }
                 Mode::Settings => Task::none(),
+                Mode::Help => Task::none(),
             }
         }
         Message::SubmitInTerminal => {
@@ -406,6 +412,23 @@ fn update(state: &mut CastIt, message: Message) -> Task<Message> {
                     }
                     _ => {}
                 }
+            } else if state.mode == Mode::FileBrowser {
+                let mut path_str = state.query.clone();
+                if path_str.ends_with('/') {
+                    path_str.pop();
+                }
+                if let Some(idx) = path_str.rfind('/') {
+                    let parent = &path_str[..=idx];
+                    let mut display_path = parent.to_string();
+                    let home = std::env::var("HOME").unwrap_or_default();
+                    if !home.is_empty() && display_path.starts_with(&home) {
+                        display_path = display_path.replacen(&home, "~", 1);
+                    }
+                    state.query = display_path;
+                    state.selected_index = 0;
+                    update_filtered_files(state);
+                    return iced::widget::operation::move_cursor_to_end(Id::new("search-input"));
+                }
             }
             Task::none()
         }
@@ -465,6 +488,24 @@ fn update(state: &mut CastIt, message: Message) -> Task<Message> {
         Message::TogglePreview => {
             if state.mode == Mode::FileBrowser && !state.filtered_files.is_empty() {
                 state.preview_active = !state.preview_active;
+            }
+            Task::none()
+        }
+        Message::ScrollPreviewUp => {
+            if state.mode == Mode::FileBrowser && state.preview_active {
+                return iced::widget::operation::scroll_by(
+                    Id::new("preview-scroll"),
+                    iced::widget::scrollable::AbsoluteOffset { x: 0.0, y: -40.0 }
+                );
+            }
+            Task::none()
+        }
+        Message::ScrollPreviewDown => {
+            if state.mode == Mode::FileBrowser && state.preview_active {
+                return iced::widget::operation::scroll_by(
+                    Id::new("preview-scroll"),
+                    iced::widget::scrollable::AbsoluteOffset { x: 0.0, y: 40.0 }
+                );
             }
             Task::none()
         }
@@ -806,6 +847,7 @@ fn view(state: &CastIt) -> Element<'_, Message> {
             }
             Mode::CommandRunner => command_runner_view(state, palette, lang),
             Mode::Settings => settings_view(state, palette, lang),
+            Mode::Help => help_view(palette, lang),
         };
 
         let results_card = container(card_content)
@@ -942,6 +984,133 @@ fn settings_view<'a>(state: &'a CastIt, palette: iced::theme::Palette, lang: &st
         .push(container(info_text).padding(Padding { top: 4.0, right: 20.0, bottom: 12.0, left: 20.0 }));
 
     container(settings_box)
+        .width(Length::Fill)
+        .into()
+}
+
+/// Renders the keyboard shortcuts cheatsheet view.
+fn help_view<'a>(palette: iced::theme::Palette, lang: &str) -> Element<'a, Message> {
+    let mut list = Column::new()
+        .spacing(12)
+        .padding(Padding { top: 12.0, right: 14.0, bottom: 12.0, left: 14.0 });
+
+    let title = text(if lang == "ES" { "Atajos de Teclado" } else { "Keyboard Shortcuts" })
+        .size(15)
+        .font(iced::Font {
+            weight: iced::font::Weight::Bold,
+            ..Default::default()
+        })
+        .color(palette.primary);
+    list = list.push(title);
+
+    let categories = if lang == "ES" {
+        vec![
+            ("Global", vec![
+                ("Esc", "Salir de CastIt"),
+                ("Shift + Del", "Limpiar barra de búsqueda"),
+                ("..", "Ir a Ajustes"),
+                ("??", "Ver atajos de teclado (esta pantalla)"),
+            ]),
+            ("Launcher / Apps", vec![
+                ("↑ / ↓", "Navegar resultados"),
+                ("Enter", "Lanzar aplicación seleccionada"),
+            ]),
+            ("Comandos ('>')", vec![
+                ("Enter", "Ejecutar comando en segundo plano"),
+                ("Ctrl + Enter", "Ejecutar comando en terminal externa"),
+            ]),
+            ("Archivos ('/', '~')", vec![
+                ("↑ / ↓", "Navegar archivos / carpetas"),
+                ("→", "Autocompletar / Entrar en carpeta"),
+                ("Shift + ←", "Subir al directorio superior"),
+                ("Enter", "Abrir archivo (o carpeta en gestor nativo)"),
+                ("Ctrl + Espacio", "Previsualizar archivo (Quick Look)"),
+            ]),
+            ("Previsualización de Archivo", vec![
+                ("Shift + ↑ / ↓", "Deslizar (scroll) contenido del archivo"),
+                ("↑ / ↓", "Cambiar previsualización al archivo anterior/siguiente"),
+                ("Ctrl + Espacio", "Cerrar previsualización"),
+            ]),
+        ]
+    } else {
+        vec![
+            ("Global", vec![
+                ("Esc", "Exit CastIt"),
+                ("Shift + Del", "Clear search bar input"),
+                ("..", "Go to Settings"),
+                ("??", "View keyboard shortcuts (this screen)"),
+            ]),
+            ("Launcher / Apps", vec![
+                ("↑ / ↓", "Navigate launcher results"),
+                ("Enter", "Launch selected application"),
+            ]),
+            ("Commands ('>')", vec![
+                ("Enter", "Run command in background"),
+                ("Ctrl + Enter", "Run command in external terminal"),
+            ]),
+            ("Files ('/', '~')", vec![
+                ("↑ / ↓", "Navigate file list"),
+                ("→", "Autocomplete / Enter folder"),
+                ("Shift + ←", "Navigate to parent folder"),
+                ("Enter", "Open file (or Native folder manager)"),
+                ("Ctrl + Space", "Preview file (Quick Look)"),
+            ]),
+            ("File Preview", vec![
+                ("Shift + ↑ / ↓", "Scroll through file content preview"),
+                ("↑ / ↓", "Switch preview to previous/next file"),
+                ("Ctrl + Space", "Close file preview"),
+            ]),
+        ]
+    };
+
+    for (cat_name, items) in categories {
+        let cat_label = text(cat_name)
+            .size(11)
+            .font(iced::Font {
+                weight: iced::font::Weight::Bold,
+                ..Default::default()
+            })
+            .color(Color { a: 0.5, ..palette.text });
+        list = list.push(cat_label);
+
+        for (keys, desc) in items {
+            let keys_badge = container(
+                text(keys)
+                    .size(10)
+                    .font(Font::MONOSPACE)
+                    .color(palette.primary)
+            )
+            .padding(Padding::from([2, 6]))
+            .style(move |theme: &iced::Theme| container::Style {
+                background: Some(iced::Background::Color(Color { a: 0.08, ..theme.palette().primary })),
+                border: iced::Border {
+                    radius: 4.0.into(),
+                    ..Default::default()
+                },
+                ..Default::default()
+            });
+
+            let desc_text = text(desc)
+                .size(12)
+                .color(Color { a: 0.85, ..palette.text });
+
+            let item_row = row![
+                keys_badge,
+                Space::new().width(Length::Fixed(16.0)),
+                desc_text,
+            ]
+            .align_y(iced::Alignment::Center);
+
+            list = list.push(
+                container(item_row)
+                    .padding(Padding::from([4, 8]))
+            );
+        }
+
+        list = list.push(Space::new().height(Length::Fixed(6.0)));
+    }
+
+    container(scrollable(list).height(Length::Fixed(350.0)))
         .width(Length::Fill)
         .into()
 }
@@ -1250,12 +1419,12 @@ fn preview_pane<'a>(entry: &FileEntry, palette: iced::theme::Palette, lang: &str
                     .align_x(Horizontal::Center)
                     .align_y(Vertical::Center))
             }
-            // Code & Text Files
-            "rs" | "toml" | "json" | "txt" | "md" | "css" | "js" | "html" | "sh" | "py" | "c" | "cpp" | "h" | "go" | "yaml" | "yml" | "ini" | "conf" => {
+            // Code & Text Files (Expanded Dev extensions)
+            "rs" | "toml" | "json" | "txt" | "md" | "css" | "js" | "ts" | "tsx" | "jsx" | "html" | "sh" | "bash" | "py" | "c" | "cpp" | "h" | "hpp" | "go" | "java" | "kt" | "scala" | "xml" | "gradle" | "properties" | "conf" | "ini" | "sql" | "yaml" | "yml" => {
                 let content = std::fs::read_to_string(&entry.path)
                     .map(|s| {
                         s.lines()
-                            .take(25)
+                            .take(300)
                             .collect::<Vec<&str>>()
                             .join("\n")
                     })
@@ -1271,6 +1440,7 @@ fn preview_pane<'a>(entry: &FileEntry, palette: iced::theme::Palette, lang: &str
                             .color(palette.text)
                     )
                     .height(Length::Fixed(250.0))
+                    .id(Id::new("preview-scroll"))
                 )
                 .padding(12)
                 .width(Length::Fill)
@@ -1374,8 +1544,21 @@ fn subscription(state: &CastIt) -> iced::Subscription<Message> {
                 iced::Event::Keyboard(iced::keyboard::Event::KeyPressed { key, modifiers, .. }) => {
                     match key {
                         iced::keyboard::Key::Named(iced::keyboard::key::Named::Escape) => Some(Message::Escape),
-                        iced::keyboard::Key::Named(iced::keyboard::key::Named::ArrowDown) => Some(Message::ArrowDown),
-                        iced::keyboard::Key::Named(iced::keyboard::key::Named::ArrowUp) => Some(Message::ArrowUp),
+                        iced::keyboard::Key::Named(iced::keyboard::key::Named::ArrowDown) => {
+                            if modifiers.shift() {
+                                Some(Message::ScrollPreviewDown)
+                            } else {
+                                Some(Message::ArrowDown)
+                            }
+                        }
+                        iced::keyboard::Key::Named(iced::keyboard::key::Named::ArrowUp) => {
+                            if modifiers.shift() {
+                                Some(Message::ScrollPreviewUp)
+                            } else {
+                                Some(Message::ArrowUp)
+                            }
+                        }
+                        iced::keyboard::Key::Named(iced::keyboard::key::Named::ArrowLeft) if modifiers.shift() => Some(Message::ArrowLeft),
                         iced::keyboard::Key::Named(iced::keyboard::key::Named::ArrowRight) => Some(Message::ArrowRight),
                         iced::keyboard::Key::Named(iced::keyboard::key::Named::Space) if modifiers.control() => Some(Message::TogglePreview),
                         iced::keyboard::Key::Named(iced::keyboard::key::Named::Delete) if modifiers.shift() => Some(Message::ClearQuery),
