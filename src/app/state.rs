@@ -115,27 +115,22 @@ pub fn cycle_theme(state: &mut CastIt, direction: i32) {
 }
 
 pub fn cycle_terminal(state: &mut CastIt, direction: i32) {
-    let terminals = [
-        "Auto",
-        "kitty",
-        "alacritty",
-        "wezterm",
-        "gnome-terminal",
-        "konsole",
-        "xfce4-terminal",
-        "xterm",
-    ];
+    let mut list = crate::infra::runner::get_available_terminals();
     let current = state.config.terminal.as_deref().unwrap_or("Auto");
-    let current_idx = terminals.iter().position(|&t| t == current).unwrap_or(0);
+    if !list.iter().any(|t| t == current) {
+        list.push(current.to_string());
+    }
+
+    let current_idx = list.iter().position(|t| t == current).unwrap_or(0);
     let new_idx = if direction > 0 {
-        (current_idx + 1) % terminals.len()
+        (current_idx + 1) % list.len()
     } else {
-        (current_idx + terminals.len() - 1) % terminals.len()
+        (current_idx + list.len() - 1) % list.len()
     };
-    state.config.terminal = if terminals[new_idx] == "Auto" {
+    state.config.terminal = if list[new_idx] == "Auto" {
         None
     } else {
-        Some(terminals[new_idx].to_string())
+        Some(list[new_idx].to_string())
     };
     state.config.save();
 }
@@ -307,24 +302,22 @@ pub fn launch_selected(state: &CastIt) {
 }
 
 pub fn cycle_browser(state: &mut CastIt, direction: i32) {
-    let browsers = [
-        "Auto",
-        "firefox",
-        "google-chrome",
-        "brave",
-        "chromium",
-    ];
+    let mut list = crate::infra::runner::get_available_browsers();
     let current = state.config.browser.as_deref().unwrap_or("Auto");
-    let current_idx = browsers.iter().position(|&b| b == current).unwrap_or(0);
+    if !list.iter().any(|b| b == current) {
+        list.push(current.to_string());
+    }
+
+    let current_idx = list.iter().position(|b| b == current).unwrap_or(0);
     let new_idx = if direction > 0 {
-        (current_idx + 1) % browsers.len()
+        (current_idx + 1) % list.len()
     } else {
-        (current_idx + browsers.len() - 1) % browsers.len()
+        (current_idx + list.len() - 1) % list.len()
     };
-    state.config.browser = if browsers[new_idx] == "Auto" {
+    state.config.browser = if list[new_idx] == "Auto" {
         None
     } else {
-        Some(browsers[new_idx].to_string())
+        Some(list[new_idx].to_string())
     };
     state.config.save();
 }

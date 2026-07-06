@@ -2,9 +2,10 @@ use std::env;
 use std::path::Path;
 use std::process::{Command, Stdio};
 
-/// Scans the system PATH for available terminal emulators.
-fn find_terminal() -> Option<String> {
+pub fn get_available_terminals() -> Vec<String> {
+    let mut available = vec!["Auto".to_string()];
     let terminals = [
+        "ghostty",
         "kitty",
         "alacritty",
         "wezterm",
@@ -15,16 +16,54 @@ fn find_terminal() -> Option<String> {
     ];
 
     if let Ok(path_var) = env::var("PATH") {
-        for p in path_var.split(':') {
-            for term in &terminals {
+        for term in &terminals {
+            for p in path_var.split(':') {
                 let bin_path = Path::new(p).join(term);
                 if bin_path.exists() {
-                    return Some(term.to_string());
+                    available.push(term.to_string());
+                    break;
                 }
             }
         }
     }
-    None
+    available
+}
+
+pub fn get_available_browsers() -> Vec<String> {
+    let mut available = vec!["Auto".to_string()];
+    let browsers = [
+        "zen-browser",
+        "zen",
+        "firefox",
+        "google-chrome",
+        "brave-browser",
+        "brave",
+        "chromium",
+        "epiphany",
+        "opera",
+        "vivaldi",
+        "librewolf",
+        "waterfox",
+    ];
+
+    if let Ok(path_var) = env::var("PATH") {
+        for browser in &browsers {
+            for p in path_var.split(':') {
+                let bin_path = Path::new(p).join(browser);
+                if bin_path.exists() {
+                    available.push(browser.to_string());
+                    break;
+                }
+            }
+        }
+    }
+    available
+}
+
+fn find_terminal() -> Option<String> {
+    get_available_terminals()
+        .into_iter()
+        .find(|t| t != "Auto")
 }
 
 /// Runs a command in the background, capturing stdout and stderr combined.
