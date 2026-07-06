@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/logo.png" alt="CastIt Logo" width="128" height="128" />
+</p>
+
 # CastIt
 
 **CastIt** is a developer-focused, premium command palette and application launcher for Wayland-based Linux desktops. Built with Rust and powered by the Iced GUI library, it provides a fast, keyboard-driven interface with clean pill-based aesthetics inspired by Raycast.

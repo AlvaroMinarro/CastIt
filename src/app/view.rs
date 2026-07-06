@@ -1,4 +1,4 @@
-use iced::widget::{container, scrollable, text, text_input, Column, Id};
+use iced::widget::{container, image, row, scrollable, text, text_input, Column, Id};
 use iced::{Color, Element, Length, Padding};
 
 use super::message::Message;
@@ -81,10 +81,15 @@ pub fn view(state: &CastIt) -> Element<'_, Message> {
     let palette = active_theme.palette();
     let opacity = state.config.opacity.unwrap_or(0.92);
 
+    let logo_bytes = include_bytes!("../../assets/logo.png");
+    let logo_handle = image::Handle::from_bytes(logo_bytes.to_vec());
+    let logo_element = container(image(logo_handle).width(24).height(24))
+        .padding(Padding { top: 0.0, right: 0.0, bottom: 0.0, left: 20.0 });
+
     let input = text_input(translate("search_placeholder", lang), &state.query)
         .on_input(Message::QueryChanged)
         .on_submit(Message::Submit)
-        .padding(Padding { top: 16.0, right: 20.0, bottom: 16.0, left: 20.0 })
+        .padding(Padding { top: 16.0, right: 20.0, bottom: 16.0, left: 10.0 })
         .size(16)
         .id(Id::new("search-input"))
         .style(move |theme: &iced::Theme, _status| {
@@ -99,7 +104,13 @@ pub fn view(state: &CastIt) -> Element<'_, Message> {
             }
         });
 
-    let search_pill = container(input)
+    let search_row = row![
+        logo_element,
+        input,
+    ]
+    .align_y(iced::Alignment::Center);
+
+    let search_pill = container(search_row)
         .width(Length::Fill)
         .style(move |theme: &iced::Theme| {
             let bg = theme.palette().background;
