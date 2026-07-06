@@ -137,6 +137,9 @@ pub fn update(state: &mut CastIt, message: Message) -> Task<Message> {
                         }
                     }
                 }
+                Mode::Settings => {
+                    state.selected_setting = (state.selected_setting + 1).min(5);
+                }
                 Mode::Help => {
                     return iced::widget::operation::scroll_by(
                         Id::new("help-scroll"),
